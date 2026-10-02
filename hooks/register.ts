@@ -1,4 +1,4 @@
-import { formatList, parseTodoCommand, parseTodosArgs } from '../src/commands.ts'
+﻿import { formatList, parseTodoCommand, parseTodosArgs } from '../src/commands.ts'
 import { KINDS, cleanTitle, dedupeKey, isOpen, makeItem, parseItem, randomHex4 } from '../src/item.ts'
 import type { Item, Kind, Origin, Source, Status } from '../src/item.ts'
 
@@ -77,6 +77,27 @@ async function setStatus($: any, id: string, status: Status, note?: string): Pro
   return updated
 }
 
+async function mirrorTodos($: any, todos: { content: string; status: string }[]): Promise<void> {
+  const project = await $.session.cwd()
+  const sessionId = await $.session.id()
+  for (const todo of todos) {
+    if (typeof todo?.content !== 'string' || !todo.content.trim()) continue
+    const items = await loadAll($)
+    const key = dedupeKey(todo.content, project)
+    const mine = items.find((i) => i.source === 'todowrite' && i.sessionId === sessionId && dedupeKey(i.title, i.project) === key)
+    const status: Status = todo.status === 'completed' ? 'done' : todo.status === 'in_progress' ? 'in_progress' : 'open'
+    if (mine) {
+      if (mine.status !== status && isOpen(mine)) {
+        await saveItem($, { ...mine, status, updatedAt: new Date(await $.clock.now()).toISOString() })
+      }
+      continue
+    }
+    if (status === 'done') continue
+    const r = await capture($, { title: todo.content, kind: 'todo', origin: 'agent', source: 'todowrite' })
+    if (r.isNew && status !== 'open') await saveItem($, { ...r.item, status })
+  }
+}
+
 async function togglePane($: any): Promise<void> {
   // Replaced in Task 8.
 }
@@ -150,6 +171,16 @@ export function register(on) {
     const status = STATUS_VALUES.includes(e.status) ? e.status : match[0].status
     const item = await setStatus($, match[0].id, status, e.note)
     return { result: 'Item ' + item!.id + ' is now ' + item!.status }
+  })
+
+  on('tool.call', { tool: 'TodoWrite' }, async ($, e, next) => {
+    const result = await next(e)
+    try {
+      await mirrorTodos($, Array.isArray(e.todos) ? e.todos : [])
+    } catch (err: any) {
+      $.ui.log('TodoWrite mirror failed: ' + err.message)
+    }
+    return result
   })
 
   on('command.run', { command: 'todo' }, async ($, e) => {

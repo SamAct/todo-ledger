@@ -1,4 +1,4 @@
-import { mock } from 'claude-code/testing'
+﻿import { mock } from 'claude-code/testing'
 
 export const HOME = 'C:\\Users\\t'
 export const DIR = HOME + '\\.claude\\todo-ledger\\items'
@@ -6,7 +6,7 @@ export const CWD = 'D:\\Projects\\Demo'
 
 const ZERO_USAGE = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
 
-export function setup(on: any, opts: { modelText?: string; modelAnswered?: boolean; files?: Record<string, string> } = {}) {
+export function setup(on: any, opts: { modelText?: string; modelAnswered?: boolean; denyWrite?: string; files?: Record<string, string> } = {}) {
   const disk = new Map<string, string>(Object.entries(opts.files ?? {}))
   const calls = { argv: [] as string[][], submits: [] as string[], fills: [] as string[], copies: [] as string[], logs: [] as string[], toasts: [] as string[], tools: [] as string[], toolDescs: {} as Record<string, string>, commands: [] as string[], models: 0 }
   const store = new Map<string, unknown>()
@@ -26,7 +26,7 @@ export function setup(on: any, opts: { modelText?: string; modelAnswered?: boole
       .map((p) => ({ name: p.slice(e.path.length + 1), kind: 'file', size: disk.get(p)!.length, mtimeMs: 0, isLink: false })),
   }))
   on('fs.read', ($: any, e: any) => ({ value: disk.get(e.path) ?? '' }))
-  on('fs.write', ($: any, e: any) => { disk.set(e.path, e.text); return { value: undefined } })
+  on('fs.write', ($: any, e: any) => { if (opts.denyWrite) return { deny: opts.denyWrite }; disk.set(e.path, e.text); return { value: undefined } })
   on('process.run', ($: any, e: any) => {
     calls.argv.push(e.argv)
     if (e.argv[2] === 'move') { disk.set(e.argv[5], disk.get(e.argv[4])!); disk.delete(e.argv[4]) }
