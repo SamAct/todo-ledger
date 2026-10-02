@@ -2,6 +2,8 @@
 import { SCAN_SYSTEM, buildScanPrompt, parseScanReply, shouldScan } from '../src/scan.ts'
 import { KINDS, cleanTitle, dedupeKey, isOpen, makeItem, parseItem, randomHex4 } from '../src/item.ts'
 import type { Item, Kind, Origin, Source, Status } from '../src/item.ts'
+import { startOptions, startPrompt, terminalArgv } from '../src/start.ts'
+import type { StartChoice } from '../src/start.ts'
 import { TABS, age, bandLabel, itemsForTab } from '../src/view.ts'
 import type { Tab } from '../src/view.ts'
 
@@ -167,10 +169,54 @@ async function addFromPane($: any, text: string): Promise<void> {
   catch (err: any) { $.ui.toast('Todo not saved: ' + err.message) }
 }
 
-// Stub until Task 9.
+async function doStart($: any, item: Item, choice: StartChoice): Promise<void> {
+  const text = startPrompt(item, cwd)
+  try {
+    if (choice === 'send') {
+      await saveItem($, { ...item, status: 'in_progress', updatedAt: new Date(await $.clock.now()).toISOString() })
+      $.prompt.submit({ text, asUser: true })
+    } else if (choice === 'draft') {
+      const r = await $.prompt.fill({ text })
+      if (!r.isFilled) {
+        await $.ui.copy({ text })
+        $.ui.toast('Could not fill the prompt; copied instead')
+      }
+    } else if (choice === 'copy') {
+      await $.ui.copy({ text })
+      $.ui.toast('Prompt copied')
+    } else {
+      let ok = false
+      try {
+        const r = await $.process.run(terminalArgv(item.project, text))
+        ok = r.exitCode === 0
+      } catch { ok = false }
+      if (!ok) {
+        let fbOk = false
+        try {
+          const fb = await $.process.run(['cmd', '/c', 'start', 'cmd', '/k', 'cd', '/d', item.project, '&&', 'claude', text])
+          fbOk = fb.exitCode === 0
+        } catch { fbOk = false }
+        if (!fbOk) { await $.ui.copy({ text }); $.ui.toast('Could not open a terminal; prompt copied instead') }
+      }
+    }
+  } catch (err: any) {
+    $.ui.toast('Start failed: ' + err.message)
+  }
+}
+
 function startChooser($: any, e: any, item: Item) {
-  const { Text } = $.ui.resolve(e)
-  return Text({ children: ['…'] })
+  const { Select } = $.ui.resolve(e)
+  return Select({
+    key: 'start-choice-' + item.id,
+    label: 'Start',
+    options: startOptions(e.surface === 'desktop' ? 'desktop' : 'terminal'),
+    autoFocus: true,
+    onSelect: async (v: string) => {
+      startingId = null
+      await doStart($, item, v as StartChoice)
+      $.ui.invalidate('ui.render')
+    },
+  })
 }
 
 export function register(on) {
