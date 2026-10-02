@@ -1,0 +1,4 @@
+{
+  "description": "todo-ledger hooks module",
+  "modules": ["./register.ts"]
+}

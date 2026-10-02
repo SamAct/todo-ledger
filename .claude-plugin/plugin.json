@@ -1,0 +1,6 @@
+{
+  "name": "todo-ledger",
+  "version": "0.1.0",
+  "description": "Global ledger of agent and human todos, deferred items, proposals and discussions",
+  "author": { "name": "saran" }
+}
