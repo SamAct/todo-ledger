@@ -8,7 +8,7 @@ const ZERO_USAGE = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens:
 
 export function setup(on: any, opts: { modelText?: string; modelAnswered?: boolean; denyWrite?: string; files?: Record<string, string> } = {}) {
   const disk = new Map<string, string>(Object.entries(opts.files ?? {}))
-  const calls = { argv: [] as string[][], submits: [] as string[], fills: [] as string[], copies: [] as string[], logs: [] as string[], toasts: [] as string[], tools: [] as string[], toolDescs: {} as Record<string, string>, commands: [] as string[], models: 0 }
+  const calls = { argv: [] as string[][], submits: [] as string[], fills: [] as string[], copies: [] as string[], logs: [] as string[], toasts: [] as string[], tools: [] as string[], toolDescs: {} as Record<string, string>, commands: [] as string[], opens: [] as string[], models: 0 }
   const store = new Map<string, unknown>()
 
   mock.env(on, { USERPROFILE: HOME })
@@ -44,7 +44,7 @@ export function setup(on: any, opts: { modelText?: string; modelAnswered?: boole
   on('ui.copy', ($: any, e: any) => { calls.copies.push(typeof e === 'string' ? e : e.text); return { value: { isCopied: true } } })
   on('ui.log', ($: any, e: any) => { calls.logs.push(e.text); return { value: undefined } })
   on('ui.toast', ($: any, e: any) => { calls.toasts.push(e.text); return { value: undefined } })
-  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.open', ($: any, e: any) => { calls.opens.push(e.id); return { value: { isPlaced: true } } })
   on('ui.close', () => ({ value: undefined }))
   on('ui.render', () => ({ type: 'Text', props: {}, children: ['engine'] }))
   on('tool.call', () => ({ result: 'engine-ran' }))

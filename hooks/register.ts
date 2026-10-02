@@ -2,6 +2,8 @@
 import { SCAN_SYSTEM, buildScanPrompt, parseScanReply, shouldScan } from '../src/scan.ts'
 import { KINDS, cleanTitle, dedupeKey, isOpen, makeItem, parseItem, randomHex4 } from '../src/item.ts'
 import type { Item, Kind, Origin, Source, Status } from '../src/item.ts'
+import { TABS, age, bandLabel, itemsForTab } from '../src/view.ts'
+import type { Tab } from '../src/view.ts'
 
 // Every function below that takes $ must stay top-level in this file: the validator
 // rejects passing $ into functions imported from other files.
@@ -10,6 +12,17 @@ let cache: Item[] = []
 const reportedBad = new Set<string>()
 let parkedThisTurn = false
 const STATUS_VALUES = ['open', 'in_progress', 'done', 'dropped']
+
+const PANE = 'todo-ledger'
+let paneOpen = false
+let tab: Tab = 'agent'
+let allProjects = false
+let newKind: Kind = 'todo'
+let expandedId: string | null = null
+let notingId: string | null = null
+let startingId: string | null = null
+let lastSeenAt: string | null = null
+let cwd = ''
 
 async function itemsDir($: any): Promise<string> {
   const home = await $.env.get('USERPROFILE')
@@ -120,7 +133,44 @@ async function runScan($: any, answer: string): Promise<void> {
 }
 
 async function togglePane($: any): Promise<void> {
-  // Replaced in Task 8.
+  if (paneOpen) {
+    paneOpen = false
+    await $.ui.close({ id: PANE })
+    return
+  }
+  await loadAll($)
+  paneOpen = true
+  lastSeenAt = new Date(await $.clock.now()).toISOString()
+  await $.store.set('lastSeenAt', lastSeenAt)
+  await $.ui.open({ id: PANE, title: 'Todos', focus: true, closeOnEscape: true })
+  $.ui.invalidate('ui.render')
+}
+
+async function markStatus($: any, id: string, status: Status): Promise<void> {
+  try { await setStatus($, id, status) } catch (err: any) { $.ui.toast('Todo not saved: ' + err.message) }
+}
+
+async function addNote($: any, id: string, text: string): Promise<void> {
+  const item = cache.find((i) => i.id === id)
+  if (!item || !text.trim()) return
+  const at = new Date(await $.clock.now()).toISOString()
+  try {
+    await saveItem($, { ...item, updatedAt: at, notes: [...item.notes, { by: 'human' as Origin, text: text.trim(), at }] })
+  } catch (err: any) {
+    $.ui.toast('Note not saved: ' + err.message)
+  }
+}
+
+async function addFromPane($: any, text: string): Promise<void> {
+  if (!text.trim()) return
+  try { await capture($, { title: text, kind: newKind, origin: 'human', source: 'manual' }) }
+  catch (err: any) { $.ui.toast('Todo not saved: ' + err.message) }
+}
+
+// Stub until Task 9.
+function startChooser($: any, e: any, item: Item) {
+  const { Text } = $.ui.resolve(e)
+  return Text({ children: ['…'] })
 }
 
 export function register(on) {
@@ -160,7 +210,109 @@ export function register(on) {
     // Warm the cache; a failure here must not block the session or command registration.
     // The next loadAll (any command, tool or render) retries.
     try { await loadAll($) } catch { cache = [] }
+    try {
+      cwd = await $.session.cwd()
+      const seen = await $.store.get('lastSeenAt')
+      lastSeenAt = typeof seen === 'string' ? seen : null
+    } catch { lastSeenAt = null }
     return next(e)
+  })
+
+  on('ui.close', async ($, e, next) => {
+    if (e.id === PANE) paneOpen = false
+    return next(e)
+  })
+
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    // The band is where surveys draw; never crowd one.
+    if (e.props.hasSurvey) return next(e)
+    const theirs = await next(e)
+    const label = bandLabel(cache, lastSeenAt)
+    if (!label) return theirs
+    const { Box, Button } = $.ui.resolve(e)
+    const mine = Button({ key: 'ledger-toggle', label, plain: true, onPress: () => togglePane($) })
+    return Box({ flexDirection: 'column', children: theirs ? [mine, theirs] : [mine] })
+  })
+
+  on('ui.render', { component: 'Pane' }, async ($, e, next) => {
+    if (e.requestId !== PANE) return next(e)
+    const { Box, Text, Button, Input, Select } = $.ui.resolve(e)
+    // Mobile's element table has no Input or Select.
+    const canInput = e.surface !== 'mobile'
+    const redraw = () => $.ui.invalidate('ui.render')
+    const now = await $.clock.now()
+    const rows = itemsForTab(cache, tab, allProjects ? null : cwd)
+
+    const tabRow = Box({
+      flexDirection: 'row',
+      columnGap: 2,
+      children: [
+        ...TABS.map((t) =>
+          Button({ key: 'tab-' + t.id, label: t.label, hotkey: t.hotkey, plain: true, dimColor: tab !== t.id,
+            onPress: () => { tab = t.id; startingId = null; notingId = null; redraw() } })),
+        ...(canInput
+          ? [Select({ key: 'scope', label: 'Scope', value: allProjects ? 'all' : 'project',
+              options: [{ value: 'project', label: 'This project' }, { value: 'all', label: 'All projects' }],
+              onSelect: (v: string) => { allProjects = v === 'all'; redraw() } })]
+          : []),
+      ],
+    })
+
+    const addRow = canInput
+      ? [Box({
+          flexDirection: 'row',
+          columnGap: 1,
+          children: [
+            Input({ key: 'new-item', label: 'New', placeholder: 'type an item and press Enter', value: '', submitLabel: 'add',
+              onSubmit: (v: string) => addFromPane($, v) }),
+            Select({ key: 'new-kind', label: 'Kind', value: newKind,
+              options: KINDS.map((k) => ({ value: k, label: k })),
+              onSelect: (v: string) => { newKind = v as Kind; redraw() } }),
+          ],
+        })]
+      : []
+
+    const itemRow = (i: Item) => {
+      const badge = (tab === 'parked' || tab === 'proposals') ? (i.origin === 'agent' ? 'A ' : 'H ') : ''
+      const meta = [i.kind, allProjects ? i.project.split('\\').pop() : null, age(now, i.createdAt)].filter(Boolean).join(' · ')
+      const actions = startingId === i.id
+        ? [startChooser($, e, i)]
+        : notingId === i.id && canInput
+          ? [Input({ key: 'note-input-' + i.id, label: 'Note', value: '', submitLabel: 'save', autoFocus: true,
+              onSubmit: async (v: string) => { notingId = null; await addNote($, i.id, v); redraw() } })]
+          : tab === 'done'
+            ? [Button({ key: 'reopen-' + i.id, label: 'Reopen', onPress: () => markStatus($, i.id, 'open') })]
+            : [
+                Button({ key: 'start-' + i.id, label: 'Start', onPress: () => { startingId = i.id; redraw() } }),
+                Button({ key: 'done-' + i.id, label: 'Done', onPress: () => markStatus($, i.id, 'done') }),
+                Button({ key: 'drop-' + i.id, label: 'Drop', onPress: () => markStatus($, i.id, 'dropped') }),
+                ...(canInput
+                  ? [Button({ key: 'note-' + i.id, label: 'Note', onPress: () => { notingId = i.id; redraw() } })]
+                  : []),
+              ]
+      const head = Box({
+        flexDirection: 'row',
+        columnGap: 1,
+        children: [
+          Button({ key: 'title-' + i.id, plain: true, label: badge + (i.kind === 'discussion' ? '💬 ' : '') + i.title,
+            onPress: () => { expandedId = expandedId === i.id ? null : i.id; redraw() } }),
+          Text({ dimColor: true, children: [meta] }),
+          ...actions,
+        ],
+      })
+      if (expandedId !== i.id) return head
+      const detail = [i.body, ...i.notes.map((n) => n.by + ': ' + n.text)].filter(Boolean)
+      return Box({ flexDirection: 'column', children: [head, ...detail.map((d) => Text({ dimColor: true, children: ['   ' + d] }))] })
+    }
+
+    return Box({
+      flexDirection: 'column',
+      children: [
+        tabRow,
+        ...addRow,
+        ...(rows.length ? rows.map(itemRow) : [Text({ dimColor: true, children: ['Nothing here.'] })]),
+      ],
+    })
   })
 
   on('turn.start', async ($, e, next) => {
