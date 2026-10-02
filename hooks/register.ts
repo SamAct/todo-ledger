@@ -1,3 +1,4 @@
+import { formatList, parseTodoCommand, parseTodosArgs } from '../src/commands.ts'
 import { cleanTitle, dedupeKey, isOpen, makeItem, parseItem, randomHex4 } from '../src/item.ts'
 import type { Item, Kind, Origin, Source, Status } from '../src/item.ts'
 
@@ -74,6 +75,10 @@ async function setStatus($: any, id: string, status: Status, note?: string): Pro
   return updated
 }
 
+async function togglePane($: any): Promise<void> {
+  // Replaced in Task 8.
+}
+
 export function register(on) {
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'todos', description: 'Toggle the todo ledger pane', argumentHint: '[list [all]]', immediate: true })
@@ -85,13 +90,20 @@ export function register(on) {
   })
 
   on('command.run', { command: 'todo' }, async ($, e) => {
-    const text = e.args.replace(/^add\s+/, '')
-    const r = await capture($, { title: text, kind: 'todo', origin: 'human', source: 'manual' })
+    const cmd = parseTodoCommand(e.args)
+    if (cmd.action === 'error') return { text: cmd.message }
+    if (cmd.action === 'done') {
+      const item = await setStatus($, cmd.idPrefix, 'done')
+      return { text: item ? 'Done: ' + item.title : 'No single item matches id ' + cmd.idPrefix }
+    }
+    const r = await capture($, { title: cmd.text, kind: cmd.kind, origin: 'human', source: 'manual' })
     return { text: (r.isNew ? 'Added ' : 'Already listed, noted: ') + r.item.title }
   })
 
   on('command.run', { command: 'todos' }, async ($, e) => {
-    const items = await loadAll($)
-    return { text: items.filter(isOpen).map((i) => '- ' + i.title).join('\n') }
+    const cmd = parseTodosArgs(e.args)
+    if (cmd.action === 'list') return { text: formatList(await loadAll($), await $.session.cwd(), cmd.all) }
+    await togglePane($)
+    return {}
   })
 }
