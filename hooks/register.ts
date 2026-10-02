@@ -1,4 +1,5 @@
 ﻿import { formatList, parseTodoCommand, parseTodosArgs } from '../src/commands.ts'
+import { SCAN_SYSTEM, buildScanPrompt, parseScanReply, shouldScan } from '../src/scan.ts'
 import { KINDS, cleanTitle, dedupeKey, isOpen, makeItem, parseItem, randomHex4 } from '../src/item.ts'
 import type { Item, Kind, Origin, Source, Status } from '../src/item.ts'
 
@@ -98,6 +99,26 @@ async function mirrorTodos($: any, todos: { content: string; status: string }[])
   }
 }
 
+async function runScan($: any, answer: string): Promise<void> {
+  try {
+    const project = (await $.session.cwd()).toLowerCase()
+    const known = (await loadAll($)).filter((i) => isOpen(i) && i.project.toLowerCase() === project).map((i) => i.title)
+    const r = await $.model.complete({
+      model: 'haiku',
+      system: SCAN_SYSTEM,
+      prompt: buildScanPrompt(answer, known),
+      maxTokens: 400,
+      timeoutMs: 20000,
+    })
+    if (!r.isAnswered) { $.ui.log('scan skipped: ' + r.reason); return }
+    const found = parseScanReply(r.text)
+    if (!found) { $.ui.log('scan skipped: reply was not JSON'); return }
+    for (const f of found) await capture($, { title: f.title, kind: f.kind, origin: 'agent', source: 'scan' })
+  } catch (err: any) {
+    $.ui.log('scan skipped: ' + err.message)
+  }
+}
+
 async function togglePane($: any): Promise<void> {
   // Replaced in Task 8.
 }
@@ -145,6 +166,16 @@ export function register(on) {
   on('turn.start', async ($, e, next) => {
     parkedThisTurn = false
     return next(e)
+  })
+
+  on('turn.complete', async ($, e, next) => {
+    const result = await next(e)
+    // Subagent turns and non-answer turns are not scanned.
+    if (e.agentId === undefined && e.reason === 'answer' && shouldScan(e.answer, parkedThisTurn)) {
+      const answer = e.answer
+      $.clock.after(0, () => runScan($, answer))
+    }
+    return result
   })
 
   on('tool.call', { tool: 'mcp__todo-ledger__park_item' }, async ($, e) => {
@@ -201,3 +232,4 @@ export function register(on) {
     return {}
   })
 }
+
