@@ -8,7 +8,7 @@ const ZERO_USAGE = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens:
 
 export function setup(on: any, opts: { modelText?: string; modelAnswered?: boolean; files?: Record<string, string> } = {}) {
   const disk = new Map<string, string>(Object.entries(opts.files ?? {}))
-  const calls = { argv: [] as string[][], submits: [] as string[], fills: [] as string[], copies: [] as string[], logs: [] as string[], toasts: [] as string[], tools: [] as string[], commands: [] as string[], models: 0 }
+  const calls = { argv: [] as string[][], submits: [] as string[], fills: [] as string[], copies: [] as string[], logs: [] as string[], toasts: [] as string[], tools: [] as string[], toolDescs: {} as Record<string, string>, commands: [] as string[], models: 0 }
   const store = new Map<string, unknown>()
 
   mock.env(on, { USERPROFILE: HOME })
@@ -16,7 +16,7 @@ export function setup(on: any, opts: { modelText?: string; modelAnswered?: boole
   on('session.cwd', () => ({ value: CWD }))
   on('session.id', () => ({ value: 'sess-1' }))
   on('command.register', ($: any, e: any) => { calls.commands.push(e.name); return { value: { command: e.name } } })
-  on('tool.register', ($: any, e: any) => { calls.tools.push(e.name); return { value: { tool: 'mcp__todo-ledger__' + e.name } } })
+  on('tool.register', ($: any, e: any) => { calls.tools.push(e.name); calls.toolDescs[e.name] = e.description; return { value: { tool: 'mcp__todo-ledger__' + e.name } } })
   on('store.get', ($: any, e: any) => ({ value: store.get(e.key) }))
   on('store.set', ($: any, e: any) => { store.set(e.key, e.value); return { value: undefined } })
   on('fs.exists', ($: any, e: any) => ({ value: e.path === DIR || disk.has(e.path) }))

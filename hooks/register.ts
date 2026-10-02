@@ -1,5 +1,5 @@
 import { formatList, parseTodoCommand, parseTodosArgs } from '../src/commands.ts'
-import { cleanTitle, dedupeKey, isOpen, makeItem, parseItem, randomHex4 } from '../src/item.ts'
+import { KINDS, cleanTitle, dedupeKey, isOpen, makeItem, parseItem, randomHex4 } from '../src/item.ts'
 import type { Item, Kind, Origin, Source, Status } from '../src/item.ts'
 
 // Every function below that takes $ must stay top-level in this file: the validator
@@ -7,6 +7,8 @@ import type { Item, Kind, Origin, Source, Status } from '../src/item.ts'
 
 let cache: Item[] = []
 const reportedBad = new Set<string>()
+let parkedThisTurn = false
+const STATUS_VALUES = ['open', 'in_progress', 'done', 'dropped']
 
 async function itemsDir($: any): Promise<string> {
   const home = await $.env.get('USERPROFILE')
@@ -81,12 +83,73 @@ async function togglePane($: any): Promise<void> {
 
 export function register(on) {
   on('session.start', async ($, e, next) => {
+    await $.tool.register({
+      name: 'park_item',
+      description:
+        'Record an item in the user\'s global todo ledger. Call this, without asking first, whenever you ' +
+        'defer, park, postpone or put something out of scope, or propose work the user has not asked for. ' +
+        'kind: todo | deferred | proposal | discussion. Keep title to one line.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          title: { type: 'string' },
+          kind: { type: 'string', enum: ['todo', 'deferred', 'proposal', 'discussion'] },
+          body: { type: 'string' },
+        },
+        required: ['title', 'kind'],
+      },
+    })
+    await $.tool.register({
+      name: 'list_items',
+      description: 'List open items in the user\'s todo ledger. scope "project" (default) or "all".',
+      inputSchema: { type: 'object', properties: { scope: { type: 'string', enum: ['project', 'all'] } } },
+    })
+    await $.tool.register({
+      name: 'update_item',
+      description: 'Change a ledger item\'s status (open, in_progress, done, dropped) and/or add a note. id may be a unique prefix.',
+      inputSchema: {
+        type: 'object',
+        properties: { id: { type: 'string' }, status: { type: 'string', enum: STATUS_VALUES }, note: { type: 'string' } },
+        required: ['id'],
+      },
+    })
     await $.command.register({ name: 'todos', description: 'Toggle the todo ledger pane', argumentHint: '[list [all]]', immediate: true })
     await $.command.register({ name: 'todo', description: 'Add or close a ledger item', argumentHint: 'add [-d|-p|-n] <text> | done <id>' })
     // Warm the cache; a failure here must not block the session or command registration.
     // The next loadAll (any command, tool or render) retries.
     try { await loadAll($) } catch { cache = [] }
     return next(e)
+  })
+
+  on('turn.start', async ($, e, next) => {
+    parkedThisTurn = false
+    return next(e)
+  })
+
+  on('tool.call', { tool: 'mcp__todo-ledger__park_item' }, async ($, e) => {
+    if (!KINDS.includes(e.kind)) return { result: 'Not saved: kind must be one of ' + KINDS.join(', ') }
+    if (typeof e.title !== 'string' || !e.title.trim()) return { result: 'Not saved: title is required' }
+    try {
+      const r = await capture($, { title: e.title, kind: e.kind, origin: 'agent', source: 'tool', body: e.body })
+      parkedThisTurn = true
+      return { result: (r.isNew ? 'Parked ' : 'Already in ledger, added note to ') + r.item.id + ': ' + r.item.title }
+    } catch (err: any) {
+      $.ui.toast('Todo not saved: ' + err.message)
+      return { result: 'Not saved: ' + err.message }
+    }
+  })
+
+  on('tool.call', { tool: 'mcp__todo-ledger__list_items' }, async ($, e) => {
+    return { result: formatList(await loadAll($), await $.session.cwd(), e.scope === 'all') }
+  })
+
+  on('tool.call', { tool: 'mcp__todo-ledger__update_item' }, async ($, e) => {
+    const items = await loadAll($)
+    const match = items.filter((i) => i.id.startsWith(e.id))
+    if (match.length !== 1) return { result: 'No single item matches id ' + e.id }
+    const status = STATUS_VALUES.includes(e.status) ? e.status : match[0].status
+    const item = await setStatus($, match[0].id, status, e.note)
+    return { result: 'Item ' + item!.id + ' is now ' + item!.status }
   })
 
   on('command.run', { command: 'todo' }, async ($, e) => {
