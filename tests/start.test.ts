@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import { makeItem } from '../src/item.ts'
-import { startOptions, startPrompt, terminalArgv } from '../src/start.ts'
-import { setup, start } from './fakes.ts'
+import { fallbackArgv, startOptions, startPrompt, terminalArgv, terminalTask } from '../src/start.ts'
+import { HOME, setup, start } from './fakes.ts'
 
 const PANE = { plugin: 'todo-ledger', component: 'Pane', requestId: 'todo-ledger', viewport: { columns: 120, rows: 40 },
   props: { title: 'Todos', isFocused: true, bodyColumns: 100, placement: 'inline', scroll: { offset: 0, bodyRows: 20 }, view: {} } } as const
@@ -26,6 +26,24 @@ test('startPrompt includes id, notes, cross-project warning and close instructio
 test('terminalArgv keeps a path with spaces as one argument', async () => {
   const argv = terminalArgv('D:\\My Projects\\x', 'go')
   expect(argv).toEqual(['wt', '-d', 'D:\\My Projects\\x', 'claude', 'go'])
+})
+
+test('terminalArgv escapes ; for wt and removes newlines', async () => {
+  const argv = terminalArgv('D:\\a;b', 'one; two\nthree')
+  expect(argv).toEqual(['wt', '-d', 'D:\\a\\;b', 'claude', 'one\\; two three'])
+})
+
+test('fallbackArgv has no && and passes one-line task to claude in the new window', async () => {
+  const argv = fallbackArgv('D:\\My Projects\\x', 'a\r\nb')
+  expect(argv).toEqual(['cmd', '/c', 'start', '', '/d', 'D:\\My Projects\\x', 'cmd', '/k', 'claude', 'a b'])
+  expect(argv.includes('&&')).toBe(false)
+})
+
+test('terminalTask is one line and names the file', async () => {
+  const t = terminalTask('id1', 'C:\\f.md')
+  expect(t).toContain('C:\\f.md')
+  expect(t).toContain('id1')
+  expect(/[\n;]/.test(t)).toBe(false)
 })
 
 test('Send now submits as the user and marks in progress', async ($, on) => {
@@ -62,4 +80,57 @@ test('New terminal session runs wt in the item project', async ($, on) => {
   await ui.press({ key: 'start-' + id })
   await ui.select({ key: 'start-choice-' + id, value: 'terminal' })
   expect(calls.argv.some((a) => a[0] === 'wt' && a[2] === 'D:\\Projects\\Demo')).toBe(true)
+})
+
+test('New terminal session keeps ; and newlines off the command line and writes the prompt to a file', async ($, on) => {
+  const { disk, calls } = setup(on)
+  await start($)
+  await $.tool.call({ tool: 'mcp__todo-ledger__park_item', title: 'fix a; then b', kind: 'todo', body: 'line1\nline2; more' })
+  const id = JSON.parse([...disk.values()][0]).id
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'start-' + id })
+  await ui.select({ key: 'start-choice-' + id, value: 'terminal' })
+  const wt = calls.argv.find((a) => a[0] === 'wt')!
+  expect(wt.some((a) => a.includes('\n'))).toBe(false)
+  expect(wt.some((a) => /(^|[^\\]);/.test(a))).toBe(false)
+  const file = HOME + '\\.claude\\todo-ledger\\start\\' + id + '.md'
+  expect(disk.get(file)).toContain('fix a; then b')
+  expect(disk.get(file)).toContain('line2; more')
+  expect(wt[4]).toContain(file)
+})
+
+test('New terminal session falls back to cmd start without && when wt fails', async ($, on) => {
+  const { disk, calls } = setup(on, { failArgv0: 'wt' })
+  await start($)
+  await $.tool.call({ tool: 'mcp__todo-ledger__park_item', title: 'term2', kind: 'todo' })
+  const id = JSON.parse([...disk.values()][0]).id
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'start-' + id })
+  await ui.select({ key: 'start-choice-' + id, value: 'terminal' })
+  const fb = calls.argv.find((a) => a[0] === 'cmd' && a[2] === 'start')!
+  expect(fb.includes('&&')).toBe(false)
+  expect(fb.slice(6, 9)).toEqual(['cmd', '/k', 'claude'])
+})
+
+test('Copy reports a failed copy', async ($, on) => {
+  const { disk, calls } = setup(on, { copyFails: true })
+  await start($)
+  await $.tool.call({ tool: 'mcp__todo-ledger__park_item', title: 'copy fail', kind: 'todo' })
+  const id = JSON.parse([...disk.values()][0]).id
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'start-' + id })
+  await ui.select({ key: 'start-choice-' + id, value: 'copy' })
+  expect(calls.toasts.some((t) => t.includes('no-clipboard'))).toBe(true)
+  expect(calls.toasts.includes('Prompt copied')).toBe(false)
+})
+
+test('Start chooser can be cancelled', async ($, on) => {
+  const { disk } = setup(on)
+  await start($)
+  await $.tool.call({ tool: 'mcp__todo-ledger__park_item', title: 'cancel me', kind: 'todo' })
+  const id = JSON.parse([...disk.values()][0]).id
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'start-' + id })
+  await ui.press({ key: 'start-cancel-' + id })
+  expect(await ui.find({ key: 'start-' + id })).toBeTruthy()
 })

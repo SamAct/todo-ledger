@@ -19,6 +19,28 @@ test('a corrupt file is skipped and the rest load', async ($, on) => {
   expect(calls.logs.some((l) => l.includes('b.json'))).toBe(true)
 })
 
+test('a file whose read rejects is skipped, logged once, and the rest load', async ($, on) => {
+  const { calls } = setup(on, { denyRead: ['b.json'], files: {
+    [DIR + '\\a.json']: good('a', 'first'),
+    [DIR + '\\b.json']: good('b', 'second'),
+    [DIR + '\\c.json']: good('c', 'third'),
+  } })
+  await start($)
+  const out = await $.command.run({ command: 'todos', args: 'list' })
+  await $.command.run({ command: 'todos', args: 'list' })
+  expect(out.text).toContain('first')
+  expect(out.text).toContain('third')
+  expect(out.text).not.toContain('second')
+  expect(calls.logs.filter((l) => l.includes('b.json')).length).toBe(1)
+})
+
+test('missing USERPROFILE fails with a clear message', async ($, on) => {
+  setup(on, { noHome: true })
+  await start($)
+  const out = await $.command.run({ command: 'todo', args: 'add x' })
+  expect(out.text).toContain('USERPROFILE')
+})
+
 test('saving writes tmp then moves it into place', async ($, on) => {
   const { disk, calls } = setup(on)
   await start($)

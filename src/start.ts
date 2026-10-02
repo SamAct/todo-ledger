@@ -26,6 +26,28 @@ export function startPrompt(item: Item, cwd: string): string {
   return lines.join('\n')
 }
 
-export function terminalArgv(project: string, prompt: string): string[] {
-  return ['wt', '-d', project, 'claude', prompt]
+// The full prompt never goes on a command line: Windows Terminal splits its own command line on ';'
+// (even inside one argument) and a newline ends a cmd command line. The new session gets a short
+// one-line task that points at a file holding the full prompt.
+export function terminalTask(id: string, file: string): string {
+  return `Work on todo-ledger item ${id}. Read the file ${file} and follow the instructions in it.`
+}
+
+function oneLine(s: string): string {
+  return s.replace(/[\r\n]+/g, ' ')
+}
+
+// wt documents '\;' as the escape for a literal ';' in its arguments.
+function wtEscape(s: string): string {
+  return oneLine(s).replace(/;/g, '\\;')
+}
+
+export function terminalArgv(project: string, task: string): string[] {
+  return ['wt', '-d', wtEscape(project), 'claude', wtEscape(task)]
+}
+
+// Fallback without Windows Terminal: `start` opens a new console in the project directory, where
+// `cmd /k` runs claude. No '&&' element: the outer `cmd /c` would run what follows it itself.
+export function fallbackArgv(project: string, task: string): string[] {
+  return ['cmd', '/c', 'start', '', '/d', oneLine(project), 'cmd', '/k', 'claude', oneLine(task)]
 }

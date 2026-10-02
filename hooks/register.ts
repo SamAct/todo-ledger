@@ -2,7 +2,7 @@
 import { SCAN_SYSTEM, buildScanPrompt, parseScanReply, shouldScan } from '../src/scan.ts'
 import { KINDS, cleanTitle, dedupeKey, isOpen, makeItem, parseItem, randomHex4 } from '../src/item.ts'
 import type { Item, Kind, Origin, Source, Status } from '../src/item.ts'
-import { startOptions, startPrompt, terminalArgv } from '../src/start.ts'
+import { fallbackArgv, startOptions, startPrompt, terminalArgv, terminalTask } from '../src/start.ts'
 import type { StartChoice } from '../src/start.ts'
 import { TABS, age, bandLabel, itemsForTab } from '../src/view.ts'
 import type { Tab } from '../src/view.ts'
@@ -25,20 +25,33 @@ let notingId: string | null = null
 let startingId: string | null = null
 let lastSeenAt: string | null = null
 let cwd = ''
+let lastLoadAt = 0
+const REFRESH_MS = 5000
+// TodoWrite entries (by dedupe key) already linked to a ledger item in this session.
+const linked = new Map<string, string>()
+
+async function ledgerDir($: any): Promise<string> {
+  const home = await $.env.get('USERPROFILE')
+  if (!home) throw new Error('USERPROFILE is not set, so the ledger folder cannot be found')
+  return home + '\\.claude\\todo-ledger'
+}
 
 async function itemsDir($: any): Promise<string> {
-  const home = await $.env.get('USERPROFILE')
-  return home + '\\.claude\\todo-ledger\\items'
+  return (await ledgerDir($)) + '\\items'
 }
 
 async function loadAll($: any): Promise<Item[]> {
   const dir = await itemsDir($)
+  lastLoadAt = await $.clock.now()
   if (!(await $.fs.exists(dir))) { cache = []; return cache }
   const entries = await $.fs.list(dir)
   const items: Item[] = []
   for (const entry of entries) {
     if (!entry.name.endsWith('.json')) continue
-    const item = parseItem(await $.fs.read(dir + '\\' + entry.name))
+    // A read can reject (over 4 MiB, permission, removed since the list); treat it like bad JSON.
+    let text: string | null
+    try { text = await $.fs.read(dir + '\\' + entry.name) } catch { text = null }
+    const item = text === null ? null : parseItem(text)
     if (item) items.push(item)
     else if (!reportedBad.has(entry.name)) {
       reportedBad.add(entry.name)
@@ -77,9 +90,20 @@ async function capture(
     return { item: updated, isNew: false }
   }
   const sessionId = await $.session.id()
-  const item = makeItem({ ...f, title: cleanTitle(f.title), project, sessionId, nowMs: now, hex4: randomHex4() })
+  const dir = await itemsDir($)
+  // Ids are second-resolution plus 4 hex chars and `move /y` overwrites, so check before the first write.
+  let item = makeItem({ ...f, title: cleanTitle(f.title), project, sessionId, nowMs: now, hex4: randomHex4() })
+  for (let tries = 0; tries < 5 && (await $.fs.exists(dir + '\\' + item.id + '.json')); tries++) {
+    item = makeItem({ ...f, title: cleanTitle(f.title), project, sessionId, nowMs: now, hex4: randomHex4() })
+  }
   await saveItem($, item)
   return { item, isNew: true }
+}
+
+async function refreshIfStale($: any): Promise<void> {
+  try {
+    if ((await $.clock.now()) - lastLoadAt >= REFRESH_MS) await loadAll($)
+  } catch { /* keep the old cache; the next command or tool reports the error */ }
 }
 
 async function setStatus($: any, id: string, status: Status, note?: string): Promise<Item | null> {
@@ -100,9 +124,17 @@ async function mirrorTodos($: any, todos: { content: string; status: string }[])
     if (typeof todo?.content !== 'string' || !todo.content.trim()) continue
     const items = await loadAll($)
     const key = dedupeKey(todo.content, project)
-    const mine = items.find((i) => i.source === 'todowrite' && i.sessionId === sessionId && dedupeKey(i.title, i.project) === key)
+    const sameKey = (i: Item) => dedupeKey(i.title, i.project) === key
+    // Link to this session's earlier mirror, else to any open item with the same key and project
+    // (parked, scanned or manual), so repeated TodoWrite calls never add "Captured again" notes.
+    const linkedId = linked.get(key)
+    const mine =
+      (linkedId ? items.find((i) => i.id === linkedId) : undefined) ??
+      items.find((i) => i.source === 'todowrite' && i.sessionId === sessionId && sameKey(i)) ??
+      items.find((i) => isOpen(i) && sameKey(i))
     const status: Status = todo.status === 'completed' ? 'done' : todo.status === 'in_progress' ? 'in_progress' : 'open'
     if (mine) {
+      linked.set(key, mine.id)
       if (mine.status !== status && isOpen(mine)) {
         await saveItem($, { ...mine, status, updatedAt: new Date(await $.clock.now()).toISOString() })
       }
@@ -110,6 +142,7 @@ async function mirrorTodos($: any, todos: { content: string; status: string }[])
     }
     if (status === 'done') continue
     const r = await capture($, { title: todo.content, kind: 'todo', origin: 'agent', source: 'todowrite' })
+    linked.set(key, r.item.id)
     if (r.isNew && status !== 'open') await saveItem($, { ...r.item, status })
   }
 }
@@ -140,12 +173,18 @@ async function togglePane($: any): Promise<void> {
     await $.ui.close({ id: PANE })
     return
   }
-  await loadAll($)
-  paneOpen = true
+  try { await loadAll($) } catch (err: any) { $.ui.toast('Ledger not loaded: ' + err.message) }
   lastSeenAt = new Date(await $.clock.now()).toISOString()
-  await $.store.set('lastSeenAt', lastSeenAt)
-  await $.ui.open({ id: PANE, title: 'Todos', focus: true, closeOnEscape: true })
+  try { await $.store.set('lastSeenAt', lastSeenAt) } catch { /* only affects the "new" count */ }
+  const r = await $.ui.open({ id: PANE, title: 'Todos', focus: true, closeOnEscape: true })
+  // Only a placed pane counts as open; otherwise the next press must try to open it again.
+  paneOpen = r?.isPlaced === true
+  if (!paneOpen) $.ui.toast('Could not open the todo pane: ' + (r?.reason ?? 'unknown reason'))
   $.ui.invalidate('ui.render')
+}
+
+async function safeToggle($: any): Promise<void> {
+  try { await togglePane($) } catch (err: any) { $.ui.toast('Todo pane failed: ' + err.message) }
 }
 
 async function markStatus($: any, id: string, status: Status): Promise<void> {
@@ -169,35 +208,41 @@ async function addFromPane($: any, text: string): Promise<void> {
   catch (err: any) { $.ui.toast('Todo not saved: ' + err.message) }
 }
 
+async function copyText($: any, text: string, okMessage: string, failPrefix: string): Promise<void> {
+  const r = await $.ui.copy({ text })
+  $.ui.toast(r?.isCopied ? okMessage : failPrefix + ' (' + (r?.reason ?? 'unknown') + ')')
+}
+
 async function doStart($: any, item: Item, choice: StartChoice): Promise<void> {
-  const text = startPrompt(item, cwd)
+  const text = startPrompt(item, cwd || (await $.session.cwd()))
   try {
     if (choice === 'send') {
       await saveItem($, { ...item, status: 'in_progress', updatedAt: new Date(await $.clock.now()).toISOString() })
-      $.prompt.submit({ text, asUser: true })
+      let dropped: string | null = null
+      try {
+        const r = await $.prompt.submit({ text, asUser: true })
+        if (r && typeof r.drop === 'string') dropped = r.drop
+      } catch (err: any) { dropped = err.message }
+      if (dropped !== null) {
+        await saveItem($, { ...item, updatedAt: new Date(await $.clock.now()).toISOString() })
+        $.ui.toast('Prompt not sent: ' + dropped)
+      }
     } else if (choice === 'draft') {
       const r = await $.prompt.fill({ text })
-      if (!r.isFilled) {
-        await $.ui.copy({ text })
-        $.ui.toast('Could not fill the prompt; copied instead')
-      }
+      if (!r.isFilled) await copyText($, text, 'Could not fill the prompt; copied instead', 'Could not fill or copy the prompt')
     } else if (choice === 'copy') {
-      await $.ui.copy({ text })
-      $.ui.toast('Prompt copied')
+      await copyText($, text, 'Prompt copied', 'Prompt not copied')
     } else {
+      // The full prompt goes in a file; the command line carries a one-line pointer to it.
+      const file = (await ledgerDir($)) + '\\start\\' + item.id + '.md'
+      await $.fs.write(file, text)
+      const task = terminalTask(item.id, file)
       let ok = false
-      try {
-        const r = await $.process.run(terminalArgv(item.project, text))
-        ok = r.exitCode === 0
-      } catch { ok = false }
+      try { ok = (await $.process.run(terminalArgv(item.project, task))).exitCode === 0 } catch { ok = false }
       if (!ok) {
-        let fbOk = false
-        try {
-          const fb = await $.process.run(['cmd', '/c', 'start', 'cmd', '/k', 'cd', '/d', item.project, '&&', 'claude', text])
-          fbOk = fb.exitCode === 0
-        } catch { fbOk = false }
-        if (!fbOk) { await $.ui.copy({ text }); $.ui.toast('Could not open a terminal; prompt copied instead') }
+        try { ok = (await $.process.run(fallbackArgv(item.project, task))).exitCode === 0 } catch { ok = false }
       }
+      if (!ok) await copyText($, text, 'Could not open a terminal; prompt copied instead', 'Could not open a terminal or copy the prompt')
     }
   } catch (err: any) {
     $.ui.toast('Start failed: ' + err.message)
@@ -205,23 +250,76 @@ async function doStart($: any, item: Item, choice: StartChoice): Promise<void> {
 }
 
 function startChooser($: any, e: any, item: Item) {
-  const { Select } = $.ui.resolve(e)
-  return Select({
-    key: 'start-choice-' + item.id,
-    label: 'Start',
-    options: startOptions(e.surface === 'desktop' ? 'desktop' : 'terminal'),
-    autoFocus: true,
-    onSelect: async (v: string) => {
-      startingId = null
-      await doStart($, item, v as StartChoice)
-      $.ui.invalidate('ui.render')
-    },
+  const { Box, Button, Select } = $.ui.resolve(e)
+  return Box({
+    flexDirection: 'row',
+    columnGap: 1,
+    children: [
+      Select({
+        key: 'start-choice-' + item.id,
+        label: 'Start',
+        options: startOptions(e.surface === 'desktop' ? 'desktop' : 'terminal'),
+        autoFocus: true,
+        onSelect: async (v: string) => {
+          startingId = null
+          await doStart($, item, v as StartChoice)
+          $.ui.invalidate('ui.render')
+        },
+      }),
+      Button({ key: 'start-cancel-' + item.id, label: 'Cancel', onPress: () => { startingId = null; $.ui.invalidate('ui.render') } }),
+    ],
   })
+}
+
+async function runTodo($: any, args: string): Promise<{ text: string }> {
+  const cmd = parseTodoCommand(args)
+  if (cmd.action === 'error') return { text: cmd.message }
+  try {
+    if (cmd.action === 'done') {
+      const item = await setStatus($, cmd.idPrefix, 'done')
+      return { text: item ? 'Done: ' + item.title : 'No single item matches id ' + cmd.idPrefix }
+    }
+    const r = await capture($, { title: cmd.text, kind: cmd.kind, origin: 'human', source: 'manual' })
+    return { text: (r.isNew ? 'Added ' : 'Already listed, noted: ') + r.item.title }
+  } catch (err: any) {
+    $.ui.toast('Todo not saved: ' + err.message)
+    return { text: 'Not saved: ' + err.message }
+  }
+}
+
+async function runTodos($: any, args: string): Promise<{ text?: string }> {
+  const cmd = parseTodosArgs(args)
+  if (cmd.action === 'list') {
+    try { return { text: formatList(await loadAll($), await $.session.cwd(), cmd.all) } }
+    catch (err: any) { return { text: 'Not loaded: ' + err.message } }
+  }
+  await safeToggle($)
+  return {}
+}
+
+// Registers a command under its preferred name, or under the fallback name if that one is refused.
+async function registerCommand($: any, spec: any, fallback: string): Promise<void> {
+  try {
+    await $.command.register(spec)
+  } catch (err: any) {
+    $.ui.log('/' + spec.name + ' not registered (' + err.message + '); using /' + fallback)
+    try { await $.command.register({ ...spec, name: fallback }) }
+    catch (err2: any) { $.ui.log('/' + fallback + ' not registered either: ' + err2.message) }
+  }
+}
+
+async function registerTool($: any, spec: any): Promise<void> {
+  try { await $.tool.register(spec) } catch (err: any) { $.ui.log('tool ' + spec.name + ' not registered: ' + err.message) }
 }
 
 export function register(on) {
   on('session.start', async ($, e, next) => {
-    await $.tool.register({
+    try {
+      cwd = await $.session.cwd()
+      const seen = await $.store.get('lastSeenAt')
+      lastSeenAt = typeof seen === 'string' ? seen : null
+    } catch { lastSeenAt = null }
+    await registerTool($, {
       name: 'park_item',
       description:
         'Record an item in the user\'s global todo ledger. Call this, without asking first, whenever you ' +
@@ -237,12 +335,12 @@ export function register(on) {
         required: ['title', 'kind'],
       },
     })
-    await $.tool.register({
+    await registerTool($, {
       name: 'list_items',
       description: 'List open items in the user\'s todo ledger. scope "project" (default) or "all".',
       inputSchema: { type: 'object', properties: { scope: { type: 'string', enum: ['project', 'all'] } } },
     })
-    await $.tool.register({
+    await registerTool($, {
       name: 'update_item',
       description: 'Change a ledger item\'s status (open, in_progress, done, dropped) and/or add a note. id may be a unique prefix.',
       inputSchema: {
@@ -251,16 +349,11 @@ export function register(on) {
         required: ['id'],
       },
     })
-    await $.command.register({ name: 'todos', description: 'Toggle the todo ledger pane', argumentHint: '[list [all]]', immediate: true })
-    await $.command.register({ name: 'todo', description: 'Add or close a ledger item', argumentHint: 'add [-d|-p|-n] <text> | done <id>' })
-    // Warm the cache; a failure here must not block the session or command registration.
+    await registerCommand($, { name: 'todos', description: 'Toggle the todo ledger pane', argumentHint: '[list [all]]', immediate: true }, 'ledger')
+    await registerCommand($, { name: 'todo', description: 'Add or close a ledger item', argumentHint: 'add [-d|-p|-n] <text> | done <id>' }, 'ledger-add')
+    // Warm the cache; a failure here must not block the session.
     // The next loadAll (any command, tool or render) retries.
     try { await loadAll($) } catch { cache = [] }
-    try {
-      cwd = await $.session.cwd()
-      const seen = await $.store.get('lastSeenAt')
-      lastSeenAt = typeof seen === 'string' ? seen : null
-    } catch { lastSeenAt = null }
     return next(e)
   })
 
@@ -273,10 +366,11 @@ export function register(on) {
     // The band is where surveys draw; never crowd one.
     if (e.props.hasSurvey) return next(e)
     const theirs = await next(e)
+    await refreshIfStale($)
     const label = bandLabel(cache, lastSeenAt)
     if (!label) return theirs
     const { Box, Button } = $.ui.resolve(e)
-    const mine = Button({ key: 'ledger-toggle', label, plain: true, onPress: () => togglePane($) })
+    const mine = Button({ key: 'ledger-toggle', label, plain: true, onPress: () => safeToggle($) })
     return Box({ flexDirection: 'column', children: theirs ? [mine, theirs] : [mine] })
   })
 
@@ -287,7 +381,11 @@ export function register(on) {
     const canInput = e.surface !== 'mobile'
     const redraw = () => $.ui.invalidate('ui.render')
     const now = await $.clock.now()
-    const rows = itemsForTab(cache, tab, allProjects ? null : cwd)
+    await refreshIfStale($)
+    // Read the cwd per render so the filter follows /cd and matches what capture stores.
+    let here = cwd
+    try { here = await $.session.cwd() } catch { /* keep the session.start value */ }
+    const rows = itemsForTab(cache, tab, allProjects ? null : here)
 
     const tabRow = Box({
       flexDirection: 'row',
@@ -363,6 +461,8 @@ export function register(on) {
 
   on('turn.start', async ($, e, next) => {
     parkedThisTurn = false
+    // Other sessions may have written items; the next render reloads.
+    lastLoadAt = 0
     return next(e)
   })
 
@@ -390,16 +490,23 @@ export function register(on) {
   })
 
   on('tool.call', { tool: 'mcp__todo-ledger__list_items' }, async ($, e) => {
-    return { result: formatList(await loadAll($), await $.session.cwd(), e.scope === 'all') }
+    try { return { result: formatList(await loadAll($), await $.session.cwd(), e.scope === 'all') } }
+    catch (err: any) { return { result: 'Not loaded: ' + err.message } }
   })
 
   on('tool.call', { tool: 'mcp__todo-ledger__update_item' }, async ($, e) => {
-    const items = await loadAll($)
-    const match = items.filter((i) => i.id.startsWith(e.id))
-    if (match.length !== 1) return { result: 'No single item matches id ' + e.id }
-    const status = STATUS_VALUES.includes(e.status) ? e.status : match[0].status
-    const item = await setStatus($, match[0].id, status, e.note)
-    return { result: 'Item ' + item!.id + ' is now ' + item!.status }
+    try {
+      const items = await loadAll($)
+      const match = items.filter((i) => typeof e.id === 'string' && i.id.startsWith(e.id))
+      if (match.length !== 1) return { result: 'No single item matches id ' + e.id }
+      const status = STATUS_VALUES.includes(e.status) ? e.status : match[0].status
+      const item = await setStatus($, match[0].id, status, e.note)
+      if (!item) return { result: 'No single item matches id ' + e.id }
+      return { result: 'Item ' + item.id + ' is now ' + item.status }
+    } catch (err: any) {
+      $.ui.toast('Todo not saved: ' + err.message)
+      return { result: 'Not saved: ' + err.message }
+    }
   })
 
   on('tool.call', { tool: 'TodoWrite' }, async ($, e, next) => {
@@ -412,22 +519,10 @@ export function register(on) {
     return result
   })
 
-  on('command.run', { command: 'todo' }, async ($, e) => {
-    const cmd = parseTodoCommand(e.args)
-    if (cmd.action === 'error') return { text: cmd.message }
-    if (cmd.action === 'done') {
-      const item = await setStatus($, cmd.idPrefix, 'done')
-      return { text: item ? 'Done: ' + item.title : 'No single item matches id ' + cmd.idPrefix }
-    }
-    const r = await capture($, { title: cmd.text, kind: cmd.kind, origin: 'human', source: 'manual' })
-    return { text: (r.isNew ? 'Added ' : 'Already listed, noted: ') + r.item.title }
-  })
-
-  on('command.run', { command: 'todos' }, async ($, e) => {
-    const cmd = parseTodosArgs(e.args)
-    if (cmd.action === 'list') return { text: formatList(await loadAll($), await $.session.cwd(), cmd.all) }
-    await togglePane($)
-    return {}
-  })
+  on('command.run', { command: 'todo' }, async ($, e) => runTodo($, e.args))
+  on('command.run', { command: 'todos' }, async ($, e) => runTodos($, e.args))
+  // Fallback names, used only when /todo or /todos could not be registered.
+  on('command.run', { command: 'ledger-add' }, async ($, e) => runTodo($, e.args))
+  on('command.run', { command: 'ledger' }, async ($, e) => runTodos($, e.args))
 }
 

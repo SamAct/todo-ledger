@@ -190,6 +190,12 @@ Where the plan's code (Tasks 3-9, `tests/fakes.ts`) has to differ from this buil
 16. **Task 9 Draft on desktop - risk, unverified.** `PromptFilled.refusal` documents `no_composer` for "a surface that draws its own composer". The desktop may refuse `$.prompt.fill`; `doStart` should check `isFilled` and fall back to copy + toast when false. Confirm in Task 10 Step 5.
 17. **Task 3/6 project key - optional.** `$.session.cwd()` is the working directory; `$.session.root()` is the project root and does not move with a shell `cd`. Consider `root()` for the `project` field. Not required.
 18. **Task 6 - TaskCreate/TaskUpdate.** This build also declares `TaskCreate` / `TaskUpdate` built-in tools beside `TodoWrite`. If the session's model uses the Task tools instead of TodoWrite, the TodoWrite mirror captures nothing. Not verified which one this build's model uses by default; check during Task 10.
+    Status after final review: still open. The generated types in this checkout declare no `TaskCreate`/`TaskUpdate`
+    input shapes, so no hook was added; needs a live-session check of which tool the model calls.
+19. **New terminal session - prompt delivery.** `wt` splits its command line on `;` even inside one argument (its docs
+    give `\;` as the escape) and a newline ends a `cmd` command line. `doStart` now writes the full prompt to
+    `%USERPROFILE%\.claude\todo-ledger\start\<id>.md` and passes claude a one-line pointer to it, with `;` escaped for wt.
+    The `cmd /c start "" /d <project> cmd /k claude <task>` fallback has no `&&`. Not exercised against a real `wt` here.
 
 No difference found for: `$.env.get` (async, awaited in plan), `$.fs.*` arg names, `$.process.run` argv form, `$.session.cwd/id`,
 `$.model.complete` request fields (`model`, `system`, `prompt`, `maxTokens`, `timeoutMs`), `$.prompt.submit({ text, asUser: true })`,

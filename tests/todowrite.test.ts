@@ -28,6 +28,19 @@ test('completed in TodoWrite closes the mirrored item; repeats add nothing', asy
   expect(JSON.parse([...disk.values()][0]).status).toBe('done')
 })
 
+test('a TodoWrite entry matching a parked item links to it without note spam, and completed closes it', async ($, on) => {
+  const { disk } = setup(on)
+  await start($)
+  await $.tool.call({ tool: 'mcp__todo-ledger__park_item', title: 'Write tests', kind: 'todo' })
+  await $.tool.call(call([{ content: 'Write tests', status: 'pending', activeForm: 'x' }]))
+  await $.tool.call(call([{ content: 'Write tests', status: 'in_progress', activeForm: 'x' }]))
+  await $.tool.call(call([{ content: 'Write tests', status: 'in_progress', activeForm: 'x' }]))
+  expect(disk.size).toBe(1)
+  expect(JSON.parse([...disk.values()][0]).notes.length).toBe(0)
+  await $.tool.call(call([{ content: 'Write tests', status: 'completed', activeForm: 'x' }]))
+  expect(JSON.parse([...disk.values()][0]).status).toBe('done')
+})
+
 test('a mirror failure never blocks TodoWrite', async ($, on) => {
   const { calls } = setup(on, { denyWrite: 'disk full' })
   await start($)
