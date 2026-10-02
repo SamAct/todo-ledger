@@ -68,26 +68,19 @@ todo-ledger/
 ├── .claude-plugin/plugin.json
 ├── hooks/
 │   ├── hooks.json            { "modules": ["./register.ts"] }
-│   └── register.ts           wires events → modules below
-├── src/
-│   ├── store.ts              read/write/list items on disk
-│   ├── capture.ts            park_item tool, TodoWrite mirror, end-of-turn scan
-│   ├── ui.ts                 band button, pane, Start chooser
-│   ├── commands.ts           /todos, /todo
-│   └── item.ts               Item type, id generation, dedupe key
-├── types/index.d.ts          $.state declarations
+│   └── register.ts           every $ call: store I/O, commands, tools, capture, UI
+├── src/                      pure logic, no $
+│   ├── item.ts               Item type, ids, title cleaning, dedupe key, parse
+│   ├── commands.ts           /todo argument parsing, /todos list text
+│   ├── scan.ts               scan gating, prompt, reply parsing
+│   ├── view.ts               tab assignment, tab lists, band label
+│   └── start.ts              start prompt, start options per surface
 └── tests/*.test.ts
 ```
 
-Each unit has one job:
-
-| Unit | Does | Depends on |
-|---|---|---|
-| `item.ts` | Item type, `newId()`, `dedupeKey(title, project)` | nothing |
-| `store.ts` | `save(item)`, `get(id)`, `list(filter)`, `update(id, patch)` against the item files | `$.fs`, `$.process` |
-| `capture.ts` | Turns tool calls, TodoWrite calls and turn ends into `store.save` calls | `store`, `$.model`, `$.session` |
-| `ui.ts` | Draws band + pane from `store.list`, routes button presses | `store`, `$.ui`, `$.prompt`, `$.process` |
-| `commands.ts` | `/todos`, `/todo add` | `store`, `ui` |
+The mods validator rejects passing `$` to a function imported from another file, so every function
+that touches disk, model, prompt or UI is a top-level function in `register.ts`. Everything that can
+be computed from plain data lives in `src/` and is unit-tested without stubs.
 
 ## 4. Data model
 
@@ -95,9 +88,10 @@ Storage root: `~/.claude/todo-ledger/`
 
 ```
 ~/.claude/todo-ledger/
-├── items/<id>.json      one file per item
-└── scan.log             one line per scan failure (rotated at 1 MiB)
+└── items/<id>.json      one file per item
 ```
+
+Scan failures are reported with `$.ui.log` (a dim transcript line), not a log file.
 
 One file per item means two sessions only collide if they edit the same item at the same moment.
 Writes go to `<id>.json.tmp` and are then renamed over `<id>.json` (rename via `$.process.run`
@@ -136,7 +130,8 @@ Registered in `session.start` as `park_item` → Claude sees `mcp__todo-ledger__
 Input schema: `title` (required), `kind` (required, enum), `body` (optional).
 `origin` is always `agent`; `project` and `sessionId` come from `$.session.cwd()` / `$.session.id()`.
 
-A `prompt.section` hook appends this instruction to the system prompt (one short paragraph):
+The tool's description carries this instruction, so Claude reads it in every session (no
+documented system-prompt section name exists to target with `prompt.section`):
 
 > When you defer, park, postpone or put something out of scope, or propose work the user has not
 > asked for, call `park_item` with a one-line title. Do not ask first.
@@ -172,8 +167,8 @@ Input: the final assistant reply (last 6,000 chars) plus the titles already in t
 project, so the model does not repeat them. Each returned item goes through the dedupe key before
 saving with `source: scan`.
 
-On a parse failure, timeout or `isAnswered: false`: save nothing, append one line to `scan.log`,
-show `$.ui.log('scan skipped: <reason>')`.
+On a parse failure, timeout or `isAnswered: false`: save nothing and show
+`$.ui.log('scan skipped: <reason>')`.
 
 ### 5.4 Human items
 
@@ -269,7 +264,7 @@ decide whether to work cross-project.
 |---|---|
 | Item file unreadable / bad JSON | Skip it, `$.ui.log` its filename once per session |
 | Write/rename fails | Toast "Todo not saved: <reason>"; tool call returns that error text to Claude |
-| Scan fails | Nothing saved, one line to `scan.log`, dim log line |
+| Scan fails | Nothing saved, dim log line |
 | `wt` not found | Fall back to `cmd /c start cmd /k claude …`; if that fails, toast and copy prompt |
 | Desktop bundles Claude Code < 2.1.287 | Mod doesn't load there; documented in README with the CLI as fallback |
 | Hook throws | `.catch` handler logs and lets the event continue unchanged — the mod never blocks a turn or a TodoWrite call |
