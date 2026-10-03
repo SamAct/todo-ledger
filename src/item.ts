@@ -118,3 +118,28 @@ export function lastSessionTitle(lines: string): string | null {
   }
   return found
 }
+// Words that carry no meaning for "is this the same item": articles, joiners and
+// the verbs titles start with ("add", "implement", "build"...).
+const STOP = new Set(['the', 'an', 'and', 'or', 'to', 'of', 'in', 'on', 'for', 'from', 'with', 'by', 'at', 'as', 'is', 'are',
+  'be', 'it', 'its', 'this', 'that', 'into', 'per', 'via', 'then', 'add', 'implement', 'build', 'make', 'create', 'support',
+  'handle', 'extract', 'display', 'show', 'use'])
+
+function titleWords(s: string): Set<string> {
+  const words = s.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/)
+    .filter((w) => w.length >= 2 && !STOP.has(w))
+    .map((w) => (w.length > 3 && w.endsWith('s') && !w.endsWith('ss') ? w.slice(0, -1) : w))
+  return new Set(words)
+}
+
+// Two titles name the same item when at least 70% of the shorter one's meaningful
+// words appear in the other. Titles under 3 meaningful words never match this way
+// ("Fix login" / "Fix logout"); exact duplicates are caught by dedupeKey instead.
+export function similarTitle(a: string, b: string): boolean {
+  const A = titleWords(a)
+  const B = titleWords(b)
+  const small = Math.min(A.size, B.size)
+  if (small < 3) return false
+  let shared = 0
+  for (const w of A) if (B.has(w)) shared++
+  return shared / small >= 0.7
+}

@@ -12,7 +12,7 @@ export function setup(on: any, opts: {
   sessionTitle?: string
 } = {}) {
   const disk = new Map<string, string>(Object.entries(opts.files ?? {}))
-  const calls = { argv: [] as string[][], submits: [] as string[], fills: [] as string[], copies: [] as string[], logs: [] as string[], toasts: [] as string[], tools: [] as string[], toolDescs: {} as Record<string, string>, commands: [] as string[], opens: [] as string[], models: 0, reads: 0 }
+  const calls = { argv: [] as string[][], submits: [] as string[], fills: [] as string[], copies: [] as string[], logs: [] as string[], toasts: [] as string[], tools: [] as string[], toolDescs: {} as Record<string, string>, commands: [] as string[], opens: [] as string[], models: 0, reads: 0, prompts: [] as string[] }
   const store = new Map<string, unknown>()
 
   mock.env(on, opts.noHome ? {} : { USERPROFILE: HOME })
@@ -50,8 +50,9 @@ export function setup(on: any, opts: {
     if (e.argv[0] === 'findstr' && opts.sessionTitle) return { value: { exitCode: 0, stdout: JSON.stringify({ type: 'custom-title', customTitle: opts.sessionTitle, sessionId: 'sess-1' }) + '\r\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
-  on('model.complete', () => {
+  on('model.complete', ($: any, e: any) => {
     calls.models += 1
+    calls.prompts.push(String(e?.prompt ?? ''))
     if (opts.modelAnswered ?? true) {
       return { value: { isAnswered: true, text: opts.modelText ?? '{"items":[]}', usage: ZERO_USAGE } }
     }

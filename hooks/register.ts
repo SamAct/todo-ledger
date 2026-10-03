@@ -1,6 +1,7 @@
 import { formatItem, formatList, parseTodoCommand, parseTodosArgs } from '../src/commands.ts'
-import { SCAN_SYSTEM, buildScanPrompt, parseScanReply, shouldScan } from '../src/scan.ts'
-import { KINDS, cleanTitle, clip, dedupeKey, isOpen, lastSessionTitle, makeItem, parseItem, randomHex4, sessionLabel } from '../src/item.ts'
+import { SCAN_SYSTEM, buildScanPrompt, parseScanReply, parseScanUpdates, shouldScan } from '../src/scan.ts'
+import type { ScanUpdate } from '../src/scan.ts'
+import { KINDS, cleanTitle, clip, dedupeKey, isOpen, lastSessionTitle, makeItem, parseItem, randomHex4, sessionLabel, similarTitle } from '../src/item.ts'
 import type { Item, Kind, Origin, Source, Status } from '../src/item.ts'
 import { fallbackArgv, startOptions, startPrompt, terminalArgv, terminalTask } from '../src/start.ts'
 import type { StartChoice } from '../src/start.ts'
@@ -13,6 +14,7 @@ import type { Tab } from '../src/view.ts'
 let cache: Item[] = []
 const reportedBad = new Set<string>()
 let parkedThisTurn = false
+let lastUserText = ''
 const STATUS_VALUES = ['open', 'in_progress', 'done', 'dropped']
 
 const PANE = 'todo-ledger'
@@ -137,9 +139,12 @@ async function capture(
   const key = dedupeKey(f.title, project)
   const now = await $.clock.now()
   const at = new Date(now).toISOString()
-  const existing = items.find((i) => isOpen(i) && dedupeKey(i.title, i.project) === key)
+  // Same item when the title matches exactly, or is a rewording of an open item in this project.
+  const existing = items.find((i) => isOpen(i) && dedupeKey(i.title, i.project) === key) ??
+    items.find((i) => isOpen(i) && i.project.toLowerCase() === project.toLowerCase() && similarTitle(i.title, f.title))
   if (existing) {
-    const text = 'Captured again (' + f.source + ')' + (f.body ? ': ' + f.body : '')
+    const reworded = dedupeKey(existing.title, existing.project) !== key ? ' as "' + cleanTitle(f.title) + '"' : ''
+    const text = 'Captured again (' + f.source + ')' + reworded + (f.body ? ': ' + f.body : '')
     const updated = { ...existing, updatedAt: at, notes: [...existing.notes, { by: f.origin, text, at }] }
     await saveItem($, updated)
     return { item: updated, isNew: false }
@@ -203,20 +208,40 @@ async function mirrorTodos($: any, todos: { content: string; status: string }[])
   }
 }
 
-async function runScan($: any, answer: string): Promise<void> {
+// What the scan concluded about an open item, applied with a note saying why.
+async function applyUpdate($: any, item: Item, u: ScanUpdate): Promise<void> {
+  const at = new Date(await $.clock.now()).toISOString()
+  const note = (text: string) => [...item.notes, { by: 'agent' as Origin, text, at }]
+  if (u.action === 'approve') {
+    await saveItem($, { ...item, kind: item.kind === 'proposal' ? 'todo' : item.kind, updatedAt: at, notes: note('approved by the user (seen by the end-of-turn scan)') })
+  } else if (u.action === 'reject') {
+    await saveItem($, { ...item, status: 'dropped', updatedAt: at, notes: note('rejected by the user (seen by the end-of-turn scan)') })
+  } else if (u.action === 'done') {
+    await saveItem($, { ...item, status: 'done', updatedAt: at, notes: note('done (seen by the end-of-turn scan)') })
+  } else {
+    await saveItem($, { ...item, status: 'dropped', updatedAt: at, notes: note('duplicate of ' + u.of + ' (seen by the end-of-turn scan)') })
+  }
+}
+
+async function runScan($: any, answer: string, userText: string): Promise<void> {
   try {
     const project = (await $.session.cwd()).toLowerCase()
-    const known = (await loadAll($)).filter((i) => isOpen(i) && i.project.toLowerCase() === project).map((i) => i.title)
+    const open = (await loadAll($)).filter((i) => isOpen(i) && i.project.toLowerCase() === project)
     const r = await $.model.complete({
       model: 'haiku',
       system: SCAN_SYSTEM,
-      prompt: buildScanPrompt(answer, known),
-      maxTokens: 400,
+      prompt: buildScanPrompt(answer, open.map((i) => ({ id: i.id, title: i.title, kind: i.kind })), userText),
+      maxTokens: 700,
       timeoutMs: 20000,
     })
     if (!r.isAnswered) { $.ui.log('scan skipped: ' + r.reason); return }
     const found = parseScanReply(r.text)
     if (!found) { $.ui.log('scan skipped: reply was not JSON'); return }
+    // Updates first, against the items the prompt listed, so new captures cannot be touched.
+    for (const u of parseScanUpdates(r.text, open.map((i) => i.id))) {
+      const item = open.find((i) => i.id === u.id)
+      if (item) await applyUpdate($, item, u)
+    }
     for (const f of found) await capture($, { title: f.title, kind: f.kind, origin: 'agent', source: 'scan' })
   } catch (err: any) {
     $.ui.log('scan skipped: ' + err.message)
@@ -383,6 +408,7 @@ export function register(on) {
       description:
         'Record an item in the user\'s global todo ledger. Call this, without asking first, whenever you ' +
         'defer, park, postpone or put something out of scope, or propose work the user has not asked for. ' +
+        'If it may already be recorded, call list_items first and update that item instead of adding a second one. ' +
         'kind: todo | deferred | proposal | discussion. Keep title to one line.',
       inputSchema: {
         type: 'object',
@@ -411,6 +437,9 @@ export function register(on) {
       name: 'update_item',
       description:
         'Update a ledger item: status (open, in_progress, done, dropped), title, kind, details, and/or add a note. ' +
+        'Keep the ledger current without being asked: as soon as the user approves a proposal set kind "todo"; when ' +
+        'they reject or drop it set status "dropped"; when an item\'s work is finished set status "done"; when two ' +
+        'items are the same, drop one with a note naming the other. ' +
         'To remove an item, set status "dropped" (it moves to Done and can be reopened). id may be a unique prefix.',
       inputSchema: {
         type: 'object',
@@ -647,6 +676,8 @@ export function register(on) {
 
   on('turn.start', async ($, e, next) => {
     parkedThisTurn = false
+    // The scan reads what the user said this turn to see which items they decided.
+    if (e.agentId === undefined && typeof e.text === 'string') lastUserText = e.text
     // Picks up a /rename since the last turn, without holding the turn.
     $.clock.after(0, () => lookupSessionName($))
     // Other sessions may have written items; the next render reloads.
@@ -659,7 +690,8 @@ export function register(on) {
     // Subagent turns and non-answer turns are not scanned.
     if (e.agentId === undefined && e.reason === 'answer' && shouldScan(e.answer, parkedThisTurn)) {
       const answer = e.answer
-      $.clock.after(0, () => runScan($, answer))
+      const userText = lastUserText
+      $.clock.after(0, () => runScan($, answer, userText))
     }
     return result
   })
