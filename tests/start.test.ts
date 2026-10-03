@@ -65,6 +65,7 @@ test('desktop offers Copy, not New terminal session', async ($, on) => {
   await $.tool.call({ tool: 'mcp__todo-ledger__park_item', title: 'copy me', kind: 'todo' })
   const id = JSON.parse([...disk.values()][0]).id
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'title-' + id })
   await ui.press({ key: 'start-' + id })
   const sel = await ui.find({ key: 'start-choice-' + id })
   expect(sel.props.options.map((o: any) => o.value)).toEqual(['send', 'draft', 'copy'])
@@ -122,6 +123,7 @@ test('Copy reports a failed copy', async ($, on) => {
   await $.tool.call({ tool: 'mcp__todo-ledger__park_item', title: 'copy fail', kind: 'todo' })
   const id = JSON.parse([...disk.values()][0]).id
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'title-' + id })
   await ui.press({ key: 'start-' + id })
   await ui.select({ key: 'start-choice-' + id, value: 'copy' })
   expect(calls.toasts.some((t) => t.includes('no-clipboard'))).toBe(true)

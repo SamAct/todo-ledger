@@ -15,6 +15,19 @@ export function tabOf(item: Item): Tab {
   return item.origin === 'agent' ? 'agent' : 'human'
 }
 
+// Groups inside an open tab, ordered by what the item needs from the person:
+// a decision first, then work, then talk, then what was put off.
+export const GROUPS: { kind: Kind; label: string; mark: string; color?: string }[] = [
+  { kind: 'proposal', label: 'Needs decision', mark: '◆', color: 'suggestion' },
+  { kind: 'todo', label: 'To do', mark: '•' },
+  { kind: 'discussion', label: 'Discussion', mark: '◇' },
+  { kind: 'deferred', label: 'Parked', mark: '◇', color: 'warning' },
+]
+
+export function groupItems(items: Item[]): { kind: Kind; label: string; mark: string; color?: string; items: Item[] }[] {
+  return GROUPS.map((g) => ({ ...g, items: items.filter((i) => i.kind === g.kind) })).filter((g) => g.items.length > 0)
+}
+
 // Pane tag per kind, drawn bold before the title; a plain todo has none.
 export const KIND_TAGS: Record<Kind, { label: string; color?: string } | null> = {
   todo: null,

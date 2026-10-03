@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import { makeItem } from '../src/item.ts'
-import { TABS, age, bandLabel, itemsForTab, kindTag, tabOf } from '../src/view.ts'
+import { TABS, age, bandLabel, groupItems, itemsForTab, kindTag, tabOf } from '../src/view.ts'
 
 const mk = (over: any) => ({ ...makeItem({ title: 't', kind: 'todo', origin: 'agent', source: 'tool', project: 'P', sessionId: 's', nowMs: 0, hex4: '0000' }), ...over })
 
@@ -16,6 +16,14 @@ test('open items go to a tab by origin, whatever their kind', async () => {
   expect(tabOf(mk({ origin: 'human', kind: 'discussion' }))).toBe('human')
   expect(tabOf(mk({ status: 'dropped' }))).toBe('done')
   expect(tabOf(mk({ status: 'done', origin: 'human' }))).toBe('done')
+})
+
+test('groupItems orders by what the item needs and drops empty groups', async () => {
+  const items = [mk({ id: 'a', kind: 'deferred' }), mk({ id: 'b', kind: 'todo' }), mk({ id: 'c', kind: 'proposal' }), mk({ id: 'd', kind: 'proposal' })]
+  const groups = groupItems(items)
+  expect(groups.map((g) => g.label)).toEqual(['Needs decision', 'To do', 'Parked'])
+  expect(groups[0].items.map((i) => i.id)).toEqual(['c', 'd'])
+  expect(groupItems([])).toEqual([])
 })
 
 test('kindTag marks every kind except plain todo', async () => {

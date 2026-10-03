@@ -4,7 +4,7 @@ import { KINDS, cleanTitle, dedupeKey, isOpen, makeItem, parseItem, randomHex4 }
 import type { Item, Kind, Origin, Source, Status } from '../src/item.ts'
 import { fallbackArgv, startOptions, startPrompt, terminalArgv, terminalTask } from '../src/start.ts'
 import type { StartChoice } from '../src/start.ts'
-import { KIND_TAGS, TABS, age, bandLabel, itemsForTab, tabOf } from '../src/view.ts'
+import { TABS, age, bandLabel, groupItems, itemsForTab, tabOf } from '../src/view.ts'
 import type { Tab } from '../src/view.ts'
 
 // Every function below that takes $ must stay top-level in this file: the validator
@@ -175,7 +175,7 @@ async function togglePane($: any): Promise<void> {
   try { await loadAll($) } catch (err: any) { $.ui.toast('Ledger not loaded: ' + err.message) }
   lastSeenAt = new Date(await $.clock.now()).toISOString()
   try { await $.store.set('lastSeenAt', lastSeenAt) } catch { /* only affects the "new" count */ }
-  const r = await $.ui.open({ id: PANE, title: 'Todos', focus: true, closeOnEscape: true })
+  const r = await $.ui.open({ id: PANE, title: 'Todos', focus: true, closeOnEscape: true, columns: 42 })
   // Only a placed pane counts as open; otherwise the next press must try to open it again.
   paneOpen = r?.isPlaced === true
   if (!paneOpen) $.ui.toast('Could not open the todo pane: ' + (r?.reason ?? 'unknown reason'))
@@ -383,27 +383,32 @@ export function register(on) {
 
     const scoped = cache.filter((i) => allProjects || i.project.toLowerCase() === here.toLowerCase())
     const count = (t: Tab) => scoped.filter((i) => tabOf(i) === t).length
-    const isDesktop = e.surface === 'desktop'
-    const ruleWidth = Math.max(10, Math.min(e.props.bodyColumns ?? 40, 60))
-    const rule = () => Text({ dimColor: true, children: ['─'.repeat(ruleWidth)] })
+    const openCount = scoped.filter((i) => tabOf(i) !== 'done').length
+    // Rules are cut, never wrapped, so a narrow dock can't break them onto two lines.
+    const cols = Math.max(12, (e.props.bodyColumns ?? 40) - 1)
+    const rule = () => Text({ dimColor: true, wrap: 'truncate-end', children: ['─'.repeat(cols)] })
+    const select = (id: string | null) => { expandedId = id; startingId = null; notingId = null; redraw() }
 
-    // Header: tabs with open counts on the left, the scope toggle on the right.
-    const header = Box({
+    // Row 1: where the list comes from, kept apart from the tabs.
+    const scopeRow = Box({
       flexDirection: 'row',
       justifyContent: 'space-between',
       children: [
-        Box({
-          flexDirection: 'row',
-          columnGap: 3,
-          children: TABS.map((t) =>
-            Button({ key: 'tab-' + t.id, plain: true, hotkey: t.hotkey, dimColor: tab !== t.id,
-              label: t.id === 'done' ? t.label : t.label + ' ' + count(t.id),
-              onPress: () => { tab = t.id; startingId = null; notingId = null; redraw() } })),
-        }),
-        Button({ key: 'scope', plain: true, hotkey: 'p', dimColor: true,
-          label: (allProjects ? 'All projects' : 'This project') + ' ⇄',
-          onPress: () => { allProjects = !allProjects; redraw() } }),
+        Button({ key: 'scope', plain: true, hotkey: 'p',
+          label: (allProjects ? 'All projects' : 'This project') + ' ▾',
+          onPress: () => { allProjects = !allProjects; select(null) } }),
+        Text({ dimColor: true, children: [openCount + ' open'] }),
       ],
+    })
+
+    // Row 2: who started it.
+    const tabRow = Box({
+      flexDirection: 'row',
+      columnGap: 3,
+      children: TABS.map((t) =>
+        Button({ key: 'tab-' + t.id, plain: true, hotkey: t.hotkey, dimColor: tab !== t.id,
+          label: t.id === 'done' ? t.label : t.label + ' ' + count(t.id),
+          onPress: () => { tab = t.id; select(null) } })),
     })
 
     const actionsFor = (i: Item) => {
@@ -421,59 +426,93 @@ export function register(on) {
       ]
     }
 
-    // One card per item: tag + title, then a dim meta line with the actions.
-    // Desktop reveals the actions on hover; the terminal has no pointer, so it
-    // shows them for the selected row (press the title, or Tab to it + Enter).
-    const itemCard = (i: Item) => {
-      const selected = expandedId === i.id
-      const busy = startingId === i.id || notingId === i.id
-      const tag = KIND_TAGS[i.kind]
-      const meta = [i.project.split('\\').filter(Boolean).pop(), age(now, i.createdAt)].filter(Boolean).join(' · ')
-      const actionsBox = isDesktop && !selected && !busy
-        // No key here: a keyed Box would start its own hover scope, and a hidden
-        // one can never be hovered. Unkeyed, it lights with the keyed row above it.
-        ? Box({ flexDirection: 'row', columnGap: 1, display: 'none', hover: { display: 'flex' }, children: actionsFor(i) })
-        : selected || busy || isDesktop
-          ? Box({ flexDirection: 'row', columnGap: 1, children: actionsFor(i) })
-          : null
-      const detail = selected ? [i.body, ...i.notes.map((n) => (n.by === 'human' ? 'You' : 'Claude') + ': ' + n.text)].filter(Boolean) : []
+    const metaOf = (i: Item) =>
+      [i.project.split('\\').filter(Boolean).pop(), age(now, i.createdAt)].filter(Boolean).join(' · ')
+
+    // Scanning: one mark, the title (a button that selects it), a dim meta line.
+    const compactRow = (i: Item, mark: string, color?: string) =>
+      Box({
+        key: 'row-' + i.id,
+        flexDirection: 'row',
+        columnGap: 1,
+        marginBottom: 1,
+        children: [
+          Text({ color, children: [mark] }),
+          Box({
+            flexDirection: 'column',
+            flexShrink: 1,
+            children: [
+              Button({ key: 'title-' + i.id, plain: true, label: i.title, onPress: () => select(i.id) }),
+              Text({ dimColor: true, children: [metaOf(i)] }),
+            ],
+          }),
+        ],
+      })
+
+    // Acting: the picked item opens into a bordered card with its full title,
+    // body, notes and actions.
+    const selectedCard = (i: Item, mark: string, color?: string) => {
+      const notes = [i.body, ...i.notes.map((n) => (n.by === 'human' ? 'You' : 'Claude') + ': ' + n.text)].filter(Boolean)
       return Box({
         key: 'row-' + i.id,
         flexDirection: 'column',
+        borderStyle: 'round',
+        paddingX: 1,
         marginBottom: 1,
         children: [
           Box({
             flexDirection: 'row',
             columnGap: 1,
             children: [
-              ...(tag ? [Text({ bold: true, color: tag.color, children: [tag.label] })] : []),
-              Button({ key: 'title-' + i.id, plain: true, label: i.title,
-                onPress: () => { expandedId = selected ? null : i.id; startingId = null; notingId = null; redraw() } }),
+              Text({ color, children: [mark] }),
+              // Full title wraps here; the list row truncates it.
+              Box({
+                flexDirection: 'column',
+                flexGrow: 1,
+                flexShrink: 1,
+                children: [
+                  Text({ bold: true, wrap: 'wrap', children: [i.title] }),
+                  Text({ dimColor: true, children: [metaOf(i)] }),
+                ],
+              }),
+              Button({ key: 'title-' + i.id, plain: true, dimColor: true, label: '✕', onPress: () => select(null) }),
             ],
           }),
-          Box({
-            flexDirection: 'row',
-            columnGap: 2,
-            paddingLeft: 2,
-            children: [Text({ dimColor: true, children: [meta] }), ...(actionsBox ? [actionsBox] : [])],
-          }),
-          ...detail.map((d) => Text({ dimColor: true, wrap: 'wrap', children: ['    ' + d] })),
+          ...notes.map((n) => Text({ wrap: 'wrap', children: [n] })),
+          Box({ flexDirection: 'row', columnGap: 1, flexWrap: 'wrap', marginTop: 1, children: actionsFor(i) }),
         ],
       })
     }
 
-    const empty = Text({ dimColor: true, wrap: 'wrap', children: [
-      tab === 'done' ? 'Nothing closed yet.' : 'Nothing open. Claude adds deferred work and proposals here; add your own with /todo add <text>.',
-    ] })
+    const itemView = (i: Item, mark: string, color?: string) =>
+      expandedId === i.id ? selectedCard(i, mark, color) : compactRow(i, mark, color)
+
+    const body = rows.length === 0
+      ? [Text({ dimColor: true, wrap: 'wrap', children: [
+          tab === 'done'
+            ? 'Closed items show here.'
+            : 'Claude adds work it defers or proposes here. Add your own with /todo add <text>.',
+        ] })]
+      : tab === 'done'
+        ? rows.map((i) => itemView(i, '✓'))
+        : groupItems(rows).flatMap((g) => [
+            Box({
+              flexDirection: 'row',
+              columnGap: 1,
+              marginBottom: 1,
+              children: [Text({ bold: true, dimColor: true, children: [g.label] }), Text({ dimColor: true, children: [String(g.items.length)] })],
+            }),
+            ...g.items.map((i) => itemView(i, g.mark, g.color)),
+          ])
 
     return Box({
       flexDirection: 'column',
       children: [
-        header,
+        scopeRow,
+        tabRow,
         rule(),
-        ...(rows.length ? rows.map(itemCard) : [empty]),
-        rule(),
-        Text({ dimColor: true, children: [(isDesktop ? 'Hover or click a row for actions' : 'Select a title for actions') + ' · /todo add <text> to add'] }),
+        ...body,
+        Text({ dimColor: true, wrap: 'wrap', children: ['Select an item for details and actions'] }),
       ],
     })
   })
