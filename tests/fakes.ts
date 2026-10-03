@@ -1,4 +1,4 @@
-﻿import { mock } from 'claude-code/testing'
+import { mock } from 'claude-code/testing'
 
 export const HOME = 'C:\\Users\\t'
 export const DIR = HOME + '\\.claude\\todo-ledger\\items'
@@ -11,7 +11,7 @@ export function setup(on: any, opts: {
   denyRead?: string[]; failArgv0?: string; copyFails?: boolean; openPlaced?: boolean; failRegister?: string[]; noHome?: boolean
 } = {}) {
   const disk = new Map<string, string>(Object.entries(opts.files ?? {}))
-  const calls = { argv: [] as string[][], submits: [] as string[], fills: [] as string[], copies: [] as string[], logs: [] as string[], toasts: [] as string[], tools: [] as string[], toolDescs: {} as Record<string, string>, commands: [] as string[], opens: [] as string[], models: 0 }
+  const calls = { argv: [] as string[][], submits: [] as string[], fills: [] as string[], copies: [] as string[], logs: [] as string[], toasts: [] as string[], tools: [] as string[], toolDescs: {} as Record<string, string>, commands: [] as string[], opens: [] as string[], models: 0, reads: 0 }
   const store = new Map<string, unknown>()
 
   mock.env(on, opts.noHome ? {} : { USERPROFILE: HOME })
@@ -33,6 +33,7 @@ export function setup(on: any, opts: {
       .map((p) => ({ name: p.slice(e.path.length + 1), kind: 'file', size: disk.get(p)!.length, mtimeMs: 0, isLink: false })),
   }))
   on('fs.read', ($: any, e: any) => {
+    calls.reads += 1
     if (opts.denyRead?.some((n) => e.path.endsWith('\\' + n))) return { deny: 'file over 4 MiB' }
     return { value: disk.get(e.path) ?? '' }
   })

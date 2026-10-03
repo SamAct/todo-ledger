@@ -26,6 +26,8 @@ let lastSeenAt: string | null = null
 let cwd = ''
 let lastLoadAt = 0
 const REFRESH_MS = 5000
+const SYNC_MS = 10_000
+let folderSig = ''
 // TodoWrite entries (by dedupe key) already linked to a ledger item in this session.
 const linked = new Map<string, string>()
 
@@ -58,7 +60,37 @@ async function loadAll($: any): Promise<Item[]> {
     }
   }
   cache = items
+  folderSig = signatureOf(entries)
   return items
+}
+
+// What the items folder looks like on disk: changes when any session adds,
+// edits (size or mtime) or removes an item file.
+function signatureOf(entries: { name: string; size?: number; mtimeMs?: number }[]): string {
+  return entries
+    .filter((x) => x.name.endsWith('.json'))
+    .map((x) => x.name + ':' + (x.size ?? 0) + ':' + (x.mtimeMs ?? 0))
+    .sort()
+    .join('|')
+}
+
+// Background check: one directory listing; reload and redraw only when another
+// session (CLI or desktop) changed the folder since our last load.
+async function syncIfChanged($: any): Promise<void> {
+  try {
+    const dir = await itemsDir($)
+    const entries = (await $.fs.exists(dir)) ? await $.fs.list(dir) : []
+    if (signatureOf(entries) === folderSig) return
+    await loadAll($)
+    $.ui.invalidate('ui.render')
+  } catch { /* a failed check waits for the next tick */ }
+}
+
+// The pane's Refresh button and `/todos refresh`.
+async function forceRefresh($: any): Promise<number> {
+  await loadAll($)
+  $.ui.invalidate('ui.render')
+  return cache.length
 }
 
 async function saveItem($: any, item: Item): Promise<void> {
@@ -286,6 +318,12 @@ async function runTodos($: any, args: string): Promise<{ text?: string }> {
     try { return { text: formatList(await loadAll($), await $.session.cwd(), cmd.all) } }
     catch (err: any) { return { text: 'Not loaded: ' + err.message } }
   }
+  if (cmd.action === 'refresh') {
+    try {
+      await forceRefresh($)
+      return { text: 'Ledger refreshed: ' + cache.filter(isOpen).length + ' open.' }
+    } catch (err: any) { return { text: 'Not loaded: ' + err.message } }
+  }
   await safeToggle($)
   return {}
 }
@@ -312,6 +350,8 @@ export function register(on) {
       const seen = await $.store.get('lastSeenAt')
       lastSeenAt = typeof seen === 'string' ? seen : null
     } catch { lastSeenAt = null }
+    // Picks up items other sessions write; the timer stops when the module reloads.
+    $.clock.every(SYNC_MS, () => syncIfChanged($))
     await registerTool($, {
       name: 'park_item',
       description:
@@ -342,7 +382,7 @@ export function register(on) {
         required: ['id'],
       },
     })
-    await registerCommand($, { name: 'todos', description: 'Toggle the todo ledger pane', argumentHint: '[list [all]]', immediate: true }, 'ledger')
+    await registerCommand($, { name: 'todos', description: 'Toggle the todo ledger pane', argumentHint: '[list [all] | refresh]', immediate: true }, 'ledger')
     await registerCommand($, { name: 'todo', description: 'Add or close a ledger item', argumentHint: 'add [-d|-p|-n] <text> | done <id>' }, 'ledger-add')
     // Warm the cache; a failure here must not block the session.
     // The next loadAll (any command, tool or render) retries.
@@ -397,7 +437,17 @@ export function register(on) {
         Button({ key: 'scope', plain: true, hotkey: 'p',
           label: (allProjects ? 'All projects' : 'This project') + ' ▾',
           onPress: () => { allProjects = !allProjects; select(null) } }),
-        Text({ dimColor: true, children: [openCount + ' open'] }),
+        Box({
+          flexDirection: 'row',
+          columnGap: 2,
+          children: [
+            Text({ dimColor: true, children: [openCount + ' open'] }),
+            Button({ key: 'refresh', plain: true, hotkey: 'r', label: '↻ Refresh',
+              onPress: async () => {
+                try { await forceRefresh($) } catch (err: any) { $.ui.toast('Refresh failed: ' + err.message) }
+              } }),
+          ],
+        }),
       ],
     })
 

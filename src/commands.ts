@@ -20,9 +20,10 @@ export function parseTodoCommand(args: string): TodoCommand {
   return { action: 'add', kind, text: rest.join(' ') }
 }
 
-export function parseTodosArgs(args: string): { action: 'toggle' } | { action: 'list'; all: boolean } {
+export function parseTodosArgs(args: string): { action: 'toggle' } | { action: 'refresh' } | { action: 'list'; all: boolean } {
   const parts = args.trim().split(/\s+/).filter(Boolean)
   if (parts[0] === 'list') return { action: 'list', all: parts[1] === 'all' }
+  if (parts[0] === 'refresh') return { action: 'refresh' }
   return { action: 'toggle' }
 }
 
