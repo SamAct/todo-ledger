@@ -14,6 +14,8 @@ export interface Item {
   status: Status
   project: string
   sessionId: string
+  // The session's name as its tab shows it (/rename), when it had one at capture.
+  sessionName?: string
   source: Source
   createdAt: string
   updatedAt: string
@@ -27,6 +29,7 @@ export interface NewItemFields {
   source: Source
   project: string
   sessionId: string
+  sessionName?: string
   body?: string
   nowMs: number
   hex4: string
@@ -74,6 +77,7 @@ export function makeItem(f: NewItemFields): Item {
     status: 'open',
     project: f.project,
     sessionId: f.sessionId,
+    ...(f.sessionName ? { sessionName: f.sessionName } : {}),
     source: f.source,
     createdAt: at,
     updatedAt: at,
@@ -90,4 +94,27 @@ export function parseItem(text: string): Item | null {
   if (!KINDS.includes(v.kind) || !STATUSES.includes(v.status)) return null
   if (v.origin !== 'agent' && v.origin !== 'human') return null
   return { ...v, body: typeof v.body === 'string' ? v.body : '', notes: Array.isArray(v.notes) ? v.notes : [] }
+}
+
+// Cut text to at most `max` characters, ending in an ellipsis when cut.
+export function clip(s: string, max: number): string {
+  return s.length <= max ? s : s.slice(0, Math.max(1, max - 1)) + '…'
+}
+
+// How the pane names the session an item came from: its name, else the id's first block.
+export function sessionLabel(item: Item): string {
+  return item.sessionName?.trim() || item.sessionId.split('-')[0]
+}
+
+// The newest session name in transcript lines (`{"type":"custom-title","customTitle":...}`).
+export function lastSessionTitle(lines: string): string | null {
+  let found: string | null = null
+  for (const line of lines.split(/\r?\n/)) {
+    if (!line.includes('"custom-title"')) continue
+    try {
+      const v = JSON.parse(line)
+      if (v?.type === 'custom-title' && typeof v.customTitle === 'string' && v.customTitle.trim()) found = v.customTitle.trim()
+    } catch { /* a partial line; skip it */ }
+  }
+  return found
 }

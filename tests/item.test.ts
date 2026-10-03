@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { cleanTitle, dedupeKey, isOpen, makeItem, newId, parseItem } from '../src/item.ts'
+import { cleanTitle, clip, dedupeKey, isOpen, lastSessionTitle, makeItem, newId, parseItem, sessionLabel } from '../src/item.ts'
 
 test('newId is sortable timestamp plus hex', async () => {
   expect(newId(Date.UTC(2026, 9, 3, 14, 22, 33), 'a1b2')).toBe('20261003-142233-a1b2')
@@ -28,4 +28,34 @@ test('parseItem rejects bad JSON and missing fields', async () => {
   expect(parseItem('{"id":"x"}')).toBe(null)
   const good = makeItem({ title: 'a', kind: 'todo', origin: 'human', source: 'manual', project: 'p', sessionId: 's', nowMs: 0, hex4: '0000' })
   expect(parseItem(JSON.stringify(good))).toEqual(good)
+})
+
+test('clip keeps short text and cuts long text to the limit with an ellipsis', async () => {
+  expect(clip('short', 20)).toBe('short')
+  const cut = clip('a'.repeat(50), 20)
+  expect(cut.length).toBe(20)
+  expect(cut.endsWith('…')).toBe(true)
+})
+
+test('sessionLabel prefers the session name, else a short id', async () => {
+  const base = makeItem({ title: 't', kind: 'todo', origin: 'agent', source: 'tool', project: 'p', sessionId: 'e4d4850b-acb7-4222', nowMs: 0, hex4: '0000' })
+  expect(sessionLabel(base)).toBe('e4d4850b')
+  expect(sessionLabel({ ...base, sessionName: 'GeneralQues' })).toBe('GeneralQues')
+})
+
+test('lastSessionTitle reads the newest custom-title line, or null', async () => {
+  const lines = [
+    '{"type":"custom-title","customTitle":"Old name","sessionId":"s"}',
+    '{"type":"agent-name","agentName":"x","sessionId":"s"}',
+    '{"type":"custom-title","customTitle":"GeneralQues","sessionId":"s"}',
+  ].join('\r\n')
+  expect(lastSessionTitle(lines)).toBe('GeneralQues')
+  expect(lastSessionTitle('')).toBe(null)
+  expect(lastSessionTitle('{"type":"custom-title","customTitle":"   "}')).toBe(null)
+})
+
+test('makeItem stores a session name only when given one', async () => {
+  const f = { title: 't', kind: 'todo' as const, origin: 'agent' as const, source: 'tool' as const, project: 'p', sessionId: 's', nowMs: 0, hex4: '0000' }
+  expect('sessionName' in makeItem(f)).toBe(false)
+  expect(makeItem({ ...f, sessionName: 'Tab' }).sessionName).toBe('Tab')
 })

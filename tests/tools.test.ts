@@ -5,7 +5,7 @@ test('tools are registered with instructions in the description', async ($, on) 
   // The kit rejects a second on('tool.register'), so setup's stub records the descriptions.
   const { calls } = setup(on)
   await start($)
-  expect(Object.keys(calls.toolDescs)).toEqual(['park_item', 'list_items', 'update_item'])
+  expect(Object.keys(calls.toolDescs)).toEqual(['park_item', 'list_items', 'get_item', 'update_item'])
   expect(calls.toolDescs.park_item).toMatch(/defer/i)
 })
 

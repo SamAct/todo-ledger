@@ -1,4 +1,4 @@
-import { isOpen } from './item.ts'
+import { isOpen, sessionLabel } from './item.ts'
 import type { Item, Kind } from './item.ts'
 
 export type TodoCommand =
@@ -34,6 +34,20 @@ export function formatList(items: Item[], project: string, all: boolean): string
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
   if (shown.length === 0) return all ? 'No open ledger items.' : 'No open ledger items for this project.'
   return shown
-    .map((i) => `- [${i.id}] (${i.kind}, ${i.origin}) ${i.title}` + (all ? `  — ${i.project}` : ''))
+    .map((i) => `- [${i.id}] (${i.kind}, ${i.origin}, ${i.status}) ${i.title}  · session ${sessionLabel(i)}` + (all ? `  · ${i.project}` : ''))
     .join('\n')
+}
+
+// One item in full, for the get_item tool: everything an agent needs to act on it.
+export function formatItem(i: Item): string {
+  const lines = [
+    `[${i.id}] ${i.title}`,
+    `kind: ${i.kind} · status: ${i.status} · started by: ${i.origin} (${i.source})`,
+    `project: ${i.project}`,
+    `session: ${sessionLabel(i)} (${i.sessionId})`,
+    `created: ${i.createdAt} · updated: ${i.updatedAt}`,
+  ]
+  if (i.body) lines.push('', i.body)
+  if (i.notes.length) lines.push('', 'Notes:', ...i.notes.map((n) => `- ${n.by === 'human' ? 'user' : 'agent'} (${n.at}): ${n.text}`))
+  return lines.join('\n')
 }

@@ -1,6 +1,6 @@
-import { formatList, parseTodoCommand, parseTodosArgs } from '../src/commands.ts'
+import { formatItem, formatList, parseTodoCommand, parseTodosArgs } from '../src/commands.ts'
 import { SCAN_SYSTEM, buildScanPrompt, parseScanReply, shouldScan } from '../src/scan.ts'
-import { KINDS, cleanTitle, dedupeKey, isOpen, makeItem, parseItem, randomHex4 } from '../src/item.ts'
+import { KINDS, cleanTitle, clip, dedupeKey, isOpen, lastSessionTitle, makeItem, parseItem, randomHex4, sessionLabel } from '../src/item.ts'
 import type { Item, Kind, Origin, Source, Status } from '../src/item.ts'
 import { fallbackArgv, startOptions, startPrompt, terminalArgv, terminalTask } from '../src/start.ts'
 import type { StartChoice } from '../src/start.ts'
@@ -104,6 +104,30 @@ async function saveItem($: any, item: Item): Promise<void> {
   $.ui.invalidate('ui.render')
 }
 
+// The session's name (its tab title). The mods API has no call for it, so it is
+// read from the transcript's `custom-title` lines; null for an unnamed session.
+let sessionName: string | null = null
+let transcriptPath: string | null = null
+
+async function lookupSessionName($: any): Promise<string | null> {
+  try {
+    if (!transcriptPath) {
+      const id = await $.session.id()
+      const home = await $.env.get('USERPROFILE')
+      if (!home) return sessionName
+      const found = await $.process.run(['cmd', '/c', 'dir', '/s', '/b', home + '\\.claude\\projects\\' + id + '.jsonl'])
+      const first = found.exitCode === 0 ? found.stdout.split(/\r?\n/).find((l: string) => l.trim()) : undefined
+      if (!first) return sessionName
+      transcriptPath = first.trim()
+    }
+    // findstr prints only lines that begin with a title record, so a large
+    // transcript is never read whole (`.` matches the quotes in the regex).
+    const r = await $.process.run(['findstr', '/r', '/b', '/c:{.type.:.custom-title.', transcriptPath])
+    sessionName = lastSessionTitle(r.stdout) ?? sessionName
+  } catch { /* keep the last known name */ }
+  return sessionName
+}
+
 async function capture(
   $: any,
   f: { title: string; kind: Kind; origin: Origin; source: Source; body?: string },
@@ -121,11 +145,12 @@ async function capture(
     return { item: updated, isNew: false }
   }
   const sessionId = await $.session.id()
+  const name = sessionName ?? (await lookupSessionName($))
   const dir = await itemsDir($)
   // Ids are second-resolution plus 4 hex chars and `move /y` overwrites, so check before the first write.
-  let item = makeItem({ ...f, title: cleanTitle(f.title), project, sessionId, nowMs: now, hex4: randomHex4() })
+  let item = makeItem({ ...f, title: cleanTitle(f.title), project, sessionId, sessionName: name ?? undefined, nowMs: now, hex4: randomHex4() })
   for (let tries = 0; tries < 5 && (await $.fs.exists(dir + '\\' + item.id + '.json')); tries++) {
-    item = makeItem({ ...f, title: cleanTitle(f.title), project, sessionId, nowMs: now, hex4: randomHex4() })
+    item = makeItem({ ...f, title: cleanTitle(f.title), project, sessionId, sessionName: name ?? undefined, nowMs: now, hex4: randomHex4() })
   }
   await saveItem($, item)
   return { item, isNew: true }
@@ -352,6 +377,7 @@ export function register(on) {
     } catch { lastSeenAt = null }
     // Picks up items other sessions write; the timer stops when the module reloads.
     $.clock.every(SYNC_MS, () => syncIfChanged($))
+    $.clock.after(0, () => lookupSessionName($))
     await registerTool($, {
       name: 'park_item',
       description:
@@ -370,15 +396,32 @@ export function register(on) {
     })
     await registerTool($, {
       name: 'list_items',
-      description: 'List open items in the user\'s todo ledger. scope "project" (default) or "all".',
+      description:
+        'List open items in the user\'s todo ledger (their todos, parked work, proposals and discussions across ' +
+        'all projects and sessions). Use it whenever the user mentions todos, the ledger, parked or deferred work, ' +
+        'or asks what is pending. scope "project" (default) or "all". Each line gives the id to use with get_item and update_item.',
       inputSchema: { type: 'object', properties: { scope: { type: 'string', enum: ['project', 'all'] } } },
     })
     await registerTool($, {
+      name: 'get_item',
+      description: 'Read one ledger item in full: title, details, project, session, status and its notes thread. id may be a unique prefix.',
+      inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+    })
+    await registerTool($, {
       name: 'update_item',
-      description: 'Change a ledger item\'s status (open, in_progress, done, dropped) and/or add a note. id may be a unique prefix.',
+      description:
+        'Update a ledger item: status (open, in_progress, done, dropped), title, kind, details, and/or add a note. ' +
+        'To remove an item, set status "dropped" (it moves to Done and can be reopened). id may be a unique prefix.',
       inputSchema: {
         type: 'object',
-        properties: { id: { type: 'string' }, status: { type: 'string', enum: STATUS_VALUES }, note: { type: 'string' } },
+        properties: {
+          id: { type: 'string' },
+          status: { type: 'string', enum: STATUS_VALUES },
+          title: { type: 'string' },
+          kind: { type: 'string', enum: ['todo', 'deferred', 'proposal', 'discussion'] },
+          body: { type: 'string', description: 'Replaces the item\'s details' },
+          note: { type: 'string', description: 'Appended to the notes thread' },
+        },
         required: ['id'],
       },
     })
@@ -461,23 +504,24 @@ export function register(on) {
           onPress: () => { tab = t.id; select(null) } })),
     })
 
+    // Start, Done, Drop, Note: always the same order, Start the one primary.
     const actionsFor = (i: Item) => {
       if (startingId === i.id) return [startChooser($, e, i)]
-      if (notingId === i.id && canInput) {
-        return [Input({ key: 'note-input-' + i.id, label: 'Note', value: '', submitLabel: 'save', autoFocus: true,
-          onSubmit: async (v: string) => { notingId = null; await addNote($, i.id, v); redraw() } })]
-      }
       if (tab === 'done') return [Button({ key: 'reopen-' + i.id, label: 'Reopen', onPress: () => markStatus($, i.id, 'open') })]
       return [
-        Button({ key: 'start-' + i.id, label: 'Start', variant: 'primary', onPress: () => { startingId = i.id; redraw() } }),
+        Button({ key: 'start-' + i.id, label: 'Start', variant: 'primary', onPress: () => { startingId = i.id; notingId = null; redraw() } }),
         Button({ key: 'done-' + i.id, label: 'Done', onPress: () => markStatus($, i.id, 'done') }),
         Button({ key: 'drop-' + i.id, label: 'Drop', onPress: () => markStatus($, i.id, 'dropped') }),
-        ...(canInput ? [Button({ key: 'note-' + i.id, label: 'Note', onPress: () => { notingId = i.id; redraw() } })] : []),
+        ...(canInput && notingId !== i.id
+          ? [Button({ key: 'note-' + i.id, label: 'Add note', onPress: () => { notingId = i.id; startingId = null; redraw() } })]
+          : []),
       ]
     }
 
-    const metaOf = (i: Item) =>
-      [i.project.split('\\').filter(Boolean).pop(), age(now, i.createdAt)].filter(Boolean).join(' · ')
+    const projectOf = (i: Item) => i.project.split('\\').filter(Boolean).pop() ?? i.project
+    const metaOf = (i: Item) => [projectOf(i), sessionLabel(i), age(now, i.createdAt)].join(' · ')
+    // List titles stay on one line; the open card shows them whole.
+    const titleCols = Math.max(16, cols - 4)
 
     // Scanning: one mark, the title (a button that selects it), a dim meta line.
     const compactRow = (i: Item, mark: string, color?: string) =>
@@ -492,17 +536,30 @@ export function register(on) {
             flexDirection: 'column',
             flexShrink: 1,
             children: [
-              Button({ key: 'title-' + i.id, plain: true, label: i.title, onPress: () => select(i.id) }),
-              Text({ dimColor: true, children: [metaOf(i)] }),
+              Button({ key: 'title-' + i.id, plain: true, label: clip(i.title, titleCols), onPress: () => select(i.id) }),
+              Text({ dimColor: true, wrap: 'truncate-end', children: [metaOf(i)] }),
             ],
           }),
         ],
       })
 
-    // Acting: the picked item opens into a bordered card with its full title,
-    // body, notes and actions.
+    // One note: who and when on a dim line, the text under it.
+    const noteView = (n: { by: string; text: string; at: string }, k: number, id: string) =>
+      Box({
+        key: 'note-' + k + '-' + id,
+        flexDirection: 'column',
+        marginTop: 1,
+        children: [
+          Text({ dimColor: true, children: [(n.by === 'human' ? 'You' : 'Claude') + ' · ' + age(now, n.at)] }),
+          Text({ wrap: 'wrap', children: [n.text] }),
+        ],
+      })
+
+    // Acting: the picked item opens into a bordered card: title, where it came
+    // from, details, the notes thread, then the actions.
     const selectedCard = (i: Item, mark: string, color?: string) => {
-      const notes = [i.body, ...i.notes.map((n) => (n.by === 'human' ? 'You' : 'Claude') + ': ' + n.text)].filter(Boolean)
+      const noting = notingId === i.id && canInput
+      const sessionLine = 'Session ' + sessionLabel(i) + (i.sessionName ? ' · ' + i.sessionId.split('-')[0] : '')
       return Box({
         key: 'row-' + i.id,
         flexDirection: 'column',
@@ -515,20 +572,41 @@ export function register(on) {
             columnGap: 1,
             children: [
               Text({ color, children: [mark] }),
-              // Full title wraps here; the list row truncates it.
               Box({
                 flexDirection: 'column',
                 flexGrow: 1,
                 flexShrink: 1,
                 children: [
                   Text({ bold: true, wrap: 'wrap', children: [i.title] }),
-                  Text({ dimColor: true, children: [metaOf(i)] }),
+                  Text({ dimColor: true, wrap: 'wrap', children: [projectOf(i) + ' · ' + age(now, i.createdAt)] }),
+                  Text({ dimColor: true, wrap: 'wrap', children: [sessionLine] }),
                 ],
               }),
               Button({ key: 'title-' + i.id, plain: true, dimColor: true, label: '✕', onPress: () => select(null) }),
             ],
           }),
-          ...notes.map((n) => Text({ wrap: 'wrap', children: [n] })),
+          ...(i.body ? [Box({ marginTop: 1, children: [Text({ wrap: 'wrap', children: [i.body] })] })] : []),
+          ...(i.notes.length || noting
+            ? [Box({
+                flexDirection: 'column',
+                marginTop: 1,
+                children: [
+                  Text({ bold: true, dimColor: true, children: ['Notes' + (i.notes.length ? ' · ' + i.notes.length : '')] }),
+                  ...i.notes.map((n, k) => noteView(n, k, i.id)),
+                  ...(noting
+                    ? [Box({
+                        flexDirection: 'column',
+                        marginTop: 1,
+                        children: [
+                          Input({ key: 'note-input-' + i.id, value: '', placeholder: 'Write a note, then press Enter', submitLabel: 'add', autoFocus: true,
+                            onSubmit: async (v: string) => { notingId = null; await addNote($, i.id, v); redraw() } }),
+                          Button({ key: 'note-cancel-' + i.id, plain: true, dimColor: true, label: 'Cancel', onPress: () => { notingId = null; redraw() } }),
+                        ],
+                      })]
+                    : []),
+                ],
+              })]
+            : []),
           Box({ flexDirection: 'row', columnGap: 1, flexWrap: 'wrap', marginTop: 1, children: actionsFor(i) }),
         ],
       })
@@ -569,6 +647,8 @@ export function register(on) {
 
   on('turn.start', async ($, e, next) => {
     parkedThisTurn = false
+    // Picks up a /rename since the last turn, without holding the turn.
+    $.clock.after(0, () => lookupSessionName($))
     // Other sessions may have written items; the next render reloads.
     lastLoadAt = 0
     return next(e)
@@ -602,15 +682,32 @@ export function register(on) {
     catch (err: any) { return { result: 'Not loaded: ' + err.message } }
   })
 
+  on('tool.call', { tool: 'mcp__todo-ledger__get_item' }, async ($, e) => {
+    try {
+      const match = (await loadAll($)).filter((i) => typeof e.id === 'string' && e.id && i.id.startsWith(e.id))
+      return { result: match.length === 1 ? formatItem(match[0]) : 'No single item matches id ' + e.id }
+    } catch (err: any) { return { result: 'Not loaded: ' + err.message } }
+  })
+
   on('tool.call', { tool: 'mcp__todo-ledger__update_item' }, async ($, e) => {
     try {
       const items = await loadAll($)
       const match = items.filter((i) => typeof e.id === 'string' && i.id.startsWith(e.id))
       if (match.length !== 1) return { result: 'No single item matches id ' + e.id }
+      if (e.kind !== undefined && !KINDS.includes(e.kind)) return { result: 'Not saved: kind must be one of ' + KINDS.join(', ') }
+      if (e.title !== undefined && (typeof e.title !== 'string' || !e.title.trim())) return { result: 'Not saved: title cannot be empty' }
       const status = STATUS_VALUES.includes(e.status) ? e.status : match[0].status
       const item = await setStatus($, match[0].id, status, e.note)
       if (!item) return { result: 'No single item matches id ' + e.id }
-      return { result: 'Item ' + item.id + ' is now ' + item.status }
+      const edits = {
+        ...(e.title !== undefined ? { title: cleanTitle(e.title) } : {}),
+        ...(e.kind !== undefined ? { kind: e.kind as Kind } : {}),
+        ...(typeof e.body === 'string' ? { body: e.body } : {}),
+      }
+      const final = Object.keys(edits).length ? { ...item, ...edits } : item
+      if (final !== item) await saveItem($, final)
+      const changed = ['status ' + final.status, ...Object.keys(edits), ...(e.note ? ['note added'] : [])]
+      return { result: 'Item ' + final.id + ' updated: ' + changed.join(', ') }
     } catch (err: any) {
       $.ui.toast('Todo not saved: ' + err.message)
       return { result: 'Not saved: ' + err.message }

@@ -9,6 +9,7 @@ const ZERO_USAGE = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens:
 export function setup(on: any, opts: {
   modelText?: string; modelAnswered?: boolean; denyWrite?: string; files?: Record<string, string>
   denyRead?: string[]; failArgv0?: string; copyFails?: boolean; openPlaced?: boolean; failRegister?: string[]; noHome?: boolean
+  sessionTitle?: string
 } = {}) {
   const disk = new Map<string, string>(Object.entries(opts.files ?? {}))
   const calls = { argv: [] as string[][], submits: [] as string[], fills: [] as string[], copies: [] as string[], logs: [] as string[], toasts: [] as string[], tools: [] as string[], toolDescs: {} as Record<string, string>, commands: [] as string[], opens: [] as string[], models: 0, reads: 0 }
@@ -44,6 +45,9 @@ export function setup(on: any, opts: {
       return { value: { exitCode: 1, stdout: '', stderr: 'not found', isStdoutTruncated: false, isStderrTruncated: false } }
     }
     if (e.argv[2] === 'move') { disk.set(e.argv[5], disk.get(e.argv[4])!); disk.delete(e.argv[4]) }
+    // Session-name lookup: find the transcript, then its custom-title lines.
+    if (e.argv[2] === 'dir' && opts.sessionTitle) return { value: { exitCode: 0, stdout: HOME + '\\.claude\\projects\\D--x\\sess-1.jsonl\r\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    if (e.argv[0] === 'findstr' && opts.sessionTitle) return { value: { exitCode: 0, stdout: JSON.stringify({ type: 'custom-title', customTitle: opts.sessionTitle, sessionId: 'sess-1' }) + '\r\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   on('model.complete', () => {
