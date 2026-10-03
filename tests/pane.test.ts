@@ -55,6 +55,18 @@ test('pane tabs filter, input adds a human item, Done closes it', async ($, on) 
   expect(await ui.find({ type: 'Button', text: /human thing/ })).toBeUndefined()
 })
 
+test('agent deferred and proposal items show in the Agent tab with kind tags', async ($, on) => {
+  setup(on)
+  await start($)
+  await $.tool.call({ tool: 'mcp__todo-ledger__park_item', title: 'later work', kind: 'deferred' })
+  await $.tool.call({ tool: 'mcp__todo-ledger__park_item', title: 'an idea', kind: 'proposal' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ type: 'Button', text: '[parked] later work' })).toBeDefined()
+  expect(await ui.find({ type: 'Button', text: '[proposal] an idea' })).toBeDefined()
+  expect(await ui.find({ key: 'tab-parked' })).toBeUndefined()
+  expect(await ui.find({ key: 'tab-proposals' })).toBeUndefined()
+})
+
 test('note input appends a human note', async ($, on) => {
   const { disk } = setup(on)
   await start($)

@@ -196,24 +196,22 @@ A single plain `Button` in the `AbovePrompt` site:
 Opened with `$.ui.open({ id: 'todo-ledger', title: 'Todos', focus: true, closeOnEscape: true })`.
 
 ```
-1:Agent  2:Human  3:Parked  4:Proposals  5:Done        [This project ▾]
+1:Agent  2:Human  3:Done        [This project ▾]
 New: [ type an item and press Enter ] [todo ▾]
 ────────────────────────────────────────────────────────────────
-● Add CLM 8B GGUF check          deferred · TODO · 2h   [Start] [Done] [Drop] [Note]
-● Test Plumb logprobs in LMS     proposal · TODO · 1d   [Start] [Done] [Drop] [Note]
+[parked] Add CLM 8B GGUF check          2h   [Start] [Done] [Drop] [Note]
+[proposal] Test Plumb logprobs in LMS   1d   [Start] [Done] [Drop] [Note]
 ```
 
-Tabs:
+Tabs (changed 2026-10-03 at the user's request, from five tabs to three):
 | Tab | Shows |
 |---|---|
-| Agent | `origin=agent`, kind `todo` or `discussion`, status open/in_progress |
-| Human | `origin=human`, kind `todo` or `discussion`, status open/in_progress |
-| Parked | kind `deferred`, any origin, status open/in_progress |
-| Proposals | kind `proposal`, any origin, status open/in_progress |
+| Agent | `origin=agent`, any kind, status open/in_progress |
+| Human | `origin=human`, any kind, status open/in_progress |
 | Done | status done/dropped, any kind, newest 50 |
 
-Every non-done item appears in exactly one of the first four tabs. Discussions carry a 💬 marker.
-Rows show an `A` or `H` badge for origin in the Parked and Proposals tabs. Notes on any item show
+Every item appears in exactly one tab. The kind shows as a tag before the title: `[parked]` for
+deferred, `[proposal]`, `💬` for discussion, nothing for a plain todo. Notes on any item show
 when the row is expanded (press its title).
 
 Filter `Select`: This project (default) / All projects. In All projects mode each row shows the

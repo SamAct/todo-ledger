@@ -1,16 +1,28 @@
 import { expect, test } from 'claude-code/testing'
 import { makeItem } from '../src/item.ts'
-import { age, bandLabel, itemsForTab, tabOf } from '../src/view.ts'
+import { TABS, age, bandLabel, itemsForTab, kindTag, tabOf } from '../src/view.ts'
 
 const mk = (over: any) => ({ ...makeItem({ title: 't', kind: 'todo', origin: 'agent', source: 'tool', project: 'P', sessionId: 's', nowMs: 0, hex4: '0000' }), ...over })
 
-test('every open item lands in exactly one tab', async () => {
+test('tabs are Agent, Human, Done', async () => {
+  expect(TABS.map((t) => t.id)).toEqual(['agent', 'human', 'done'])
+})
+
+test('open items go to a tab by origin, whatever their kind', async () => {
   expect(tabOf(mk({ origin: 'agent', kind: 'todo' }))).toBe('agent')
-  expect(tabOf(mk({ origin: 'agent', kind: 'discussion' }))).toBe('agent')
-  expect(tabOf(mk({ origin: 'human', kind: 'todo' }))).toBe('human')
-  expect(tabOf(mk({ origin: 'human', kind: 'deferred' }))).toBe('parked')
-  expect(tabOf(mk({ origin: 'agent', kind: 'proposal' }))).toBe('proposals')
+  expect(tabOf(mk({ origin: 'agent', kind: 'proposal' }))).toBe('agent')
+  expect(tabOf(mk({ origin: 'agent', kind: 'deferred' }))).toBe('agent')
+  expect(tabOf(mk({ origin: 'human', kind: 'deferred' }))).toBe('human')
+  expect(tabOf(mk({ origin: 'human', kind: 'discussion' }))).toBe('human')
   expect(tabOf(mk({ status: 'dropped' }))).toBe('done')
+  expect(tabOf(mk({ status: 'done', origin: 'human' }))).toBe('done')
+})
+
+test('kindTag marks every kind except plain todo', async () => {
+  expect(kindTag('todo')).toBe('')
+  expect(kindTag('deferred')).toBe('[parked] ')
+  expect(kindTag('proposal')).toBe('[proposal] ')
+  expect(kindTag('discussion')).toBe('💬 ')
 })
 
 test('itemsForTab filters project, sorts newest first, caps', async () => {

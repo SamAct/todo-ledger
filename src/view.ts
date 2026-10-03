@@ -1,21 +1,25 @@
 import { isOpen } from './item.ts'
-import type { Item } from './item.ts'
+import type { Item, Kind } from './item.ts'
 
-export type Tab = 'agent' | 'human' | 'parked' | 'proposals' | 'done'
+export type Tab = 'agent' | 'human' | 'done'
 
 export const TABS: { id: Tab; label: string; hotkey: string }[] = [
   { id: 'agent', label: 'Agent', hotkey: '1' },
   { id: 'human', label: 'Human', hotkey: '2' },
-  { id: 'parked', label: 'Parked', hotkey: '3' },
-  { id: 'proposals', label: 'Proposals', hotkey: '4' },
-  { id: 'done', label: 'Done', hotkey: '5' },
+  { id: 'done', label: 'Done', hotkey: '3' },
 ]
 
+// Tabs split by who started the item; the kind shows as a tag on the row instead.
 export function tabOf(item: Item): Tab {
   if (!isOpen(item)) return 'done'
-  if (item.kind === 'deferred') return 'parked'
-  if (item.kind === 'proposal') return 'proposals'
   return item.origin === 'agent' ? 'agent' : 'human'
+}
+
+export function kindTag(kind: Kind): string {
+  if (kind === 'deferred') return '[parked] '
+  if (kind === 'proposal') return '[proposal] '
+  if (kind === 'discussion') return '💬 '
+  return ''
 }
 
 export function itemsForTab(items: Item[], tab: Tab, project: string | null): Item[] {

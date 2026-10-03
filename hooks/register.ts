@@ -4,7 +4,7 @@ import { KINDS, cleanTitle, dedupeKey, isOpen, makeItem, parseItem, randomHex4 }
 import type { Item, Kind, Origin, Source, Status } from '../src/item.ts'
 import { fallbackArgv, startOptions, startPrompt, terminalArgv, terminalTask } from '../src/start.ts'
 import type { StartChoice } from '../src/start.ts'
-import { TABS, age, bandLabel, itemsForTab } from '../src/view.ts'
+import { TABS, age, bandLabel, itemsForTab, kindTag } from '../src/view.ts'
 import type { Tab } from '../src/view.ts'
 
 // Every function below that takes $ must stay top-level in this file: the validator
@@ -417,8 +417,7 @@ export function register(on) {
       : []
 
     const itemRow = (i: Item) => {
-      const badge = (tab === 'parked' || tab === 'proposals') ? (i.origin === 'agent' ? 'A ' : 'H ') : ''
-      const meta = [i.kind, allProjects ? i.project.split('\\').pop() : null, age(now, i.createdAt)].filter(Boolean).join(' · ')
+      const meta = [allProjects ? i.project.split('\\').pop() : null, age(now, i.createdAt)].filter(Boolean).join(' · ')
       const actions = startingId === i.id
         ? [startChooser($, e, i)]
         : notingId === i.id && canInput
@@ -438,7 +437,7 @@ export function register(on) {
         flexDirection: 'row',
         columnGap: 1,
         children: [
-          Button({ key: 'title-' + i.id, plain: true, label: badge + (i.kind === 'discussion' ? '💬 ' : '') + i.title,
+          Button({ key: 'title-' + i.id, plain: true, label: kindTag(i.kind) + i.title,
             onPress: () => { expandedId = expandedId === i.id ? null : i.id; redraw() } }),
           Text({ dimColor: true, children: [meta] }),
           ...actions,
