@@ -36,8 +36,8 @@ test('itemsForTab filters project, sorts newest first, caps', async () => {
 test('bandLabel counts open and new agent items; null when nothing', async () => {
   expect(bandLabel([], null)).toBe(null)
   const items = [mk({ createdAt: '2026-10-03T10:00:00.000Z' }), mk({ origin: 'human', createdAt: '2026-10-03T11:00:00.000Z' }), mk({ status: 'done' })]
-  expect(bandLabel(items, '2026-10-03T09:00:00.000Z')).toBe('☰ Todos  2 open · 1 new')
-  expect(bandLabel(items, '2026-10-03T12:00:00.000Z')).toBe('☰ Todos  2 open')
+  expect(bandLabel(items, '2026-10-03T09:00:00.000Z')).toBe('☰ Todos 2 · 1 new')
+  expect(bandLabel(items, '2026-10-03T12:00:00.000Z')).toBe('☰ Todos 2')
 })
 
 test('age', async () => {

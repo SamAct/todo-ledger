@@ -44,7 +44,8 @@ export function bandLabel(items: Item[], lastSeenAt: string | null): string | nu
   const open = items.filter(isOpen)
   const fresh = open.filter((i) => i.origin === 'agent' && (lastSeenAt === null || i.createdAt > lastSeenAt))
   if (open.length === 0) return null
-  return '☰ Todos  ' + open.length + ' open' + (fresh.length ? ' · ' + fresh.length + ' new' : '')
+  // Compact: it shares the footer row with the mode labels.
+  return '☰ Todos ' + open.length + (fresh.length ? ' · ' + fresh.length + ' new' : '')
 }
 
 export function age(nowMs: number, iso: string): string {

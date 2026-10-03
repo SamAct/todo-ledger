@@ -1,8 +1,8 @@
 import { expect, test } from 'claude-code/testing'
 import { setup, start } from './fakes.ts'
 
-const BAND = { plugin: 'todo-ledger', component: 'AbovePrompt', requestId: 'band', viewport: { columns: 120, rows: 40 },
-  props: { hasSurvey: false, isWorking: false, maxRows: 5, bodyColumns: 100, scroll: { offset: 0, bodyRows: 5 }, view: {} } } as const
+const BAND = { plugin: 'todo-ledger', component: 'SessionMode', requestId: 'footer', viewport: { columns: 120, rows: 40 },
+  props: { modes: ['Bypass permissions'] } } as const
 const PANE = { plugin: 'todo-ledger', component: 'Pane', requestId: 'todo-ledger', viewport: { columns: 120, rows: 40 },
   props: { title: 'Todos', isFocused: true, bodyColumns: 100, placement: 'inline', scroll: { offset: 0, bodyRows: 20 }, view: {} } } as const
 
@@ -31,11 +31,24 @@ test('band shows count and opens the pane', async ($, on) => {
   expect(calls.opens).toEqual(['todo-ledger'])
 })
 
-test('band yields to a survey', async ($, on) => {
+test('button sits on the same footer row as the engine mode labels', async ($, on) => {
   setup(on)
   await start($)
   await $.command.run({ command: 'todo', args: 'add a' })
-  const ui = await $.ui.mount({ ...BAND, surface: 'terminal', props: { ...BAND.props, hasSurvey: true } })
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  const button = await ui.find({ key: 'ledger-toggle' })
+  expect(button.props.label).toBe('☰ Todos 1')
+  const row = await ui.find({ key: 'ledger-footer' })
+  expect(row.props.flexDirection).toBe('row')
+  expect(await ui.find({ type: 'Text', text: 'engine' })).toBeDefined()
+})
+
+test('nothing is drawn above the prompt any more', async ($, on) => {
+  setup(on)
+  await start($)
+  await $.command.run({ command: 'todo', args: 'add a' })
+  const ui = await $.ui.mount({ ...BAND, component: 'AbovePrompt', requestId: 'band', surface: 'desktop',
+    props: { hasSurvey: false, isWorking: false, maxRows: 5, bodyColumns: 100, scroll: { offset: 0, bodyRows: 5 }, view: {} } })
   expect(await ui.find({ key: 'ledger-toggle' })).toBeUndefined()
 })
 

@@ -355,16 +355,17 @@ export function register(on) {
     return next(e)
   })
 
-  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    // The band is where surveys draw; never crowd one.
-    if (e.props.hasSurvey) return next(e)
+  // The button lives in the prompt footer (the row with the permission-mode label),
+  // on the same line as the engine's own mode labels.
+  on('ui.render', { component: 'SessionMode' }, async ($, e, next) => {
     const theirs = await next(e)
     await refreshIfStale($)
     const label = bandLabel(cache, lastSeenAt)
     if (!label) return theirs
     const { Box, Button } = $.ui.resolve(e)
     const mine = Button({ key: 'ledger-toggle', label, plain: true, onPress: () => safeToggle($) })
-    return Box({ flexDirection: 'column', children: theirs ? [mine, theirs] : [mine] })
+    return Box({ key: 'ledger-footer', flexDirection: 'row', columnGap: 2, alignItems: 'center',
+      children: theirs ? [mine, theirs] : [mine] })
   })
 
   on('ui.render', { component: 'Pane' }, async ($, e, next) => {
