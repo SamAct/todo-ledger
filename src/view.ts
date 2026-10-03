@@ -15,6 +15,14 @@ export function tabOf(item: Item): Tab {
   return item.origin === 'agent' ? 'agent' : 'human'
 }
 
+// Pane tag per kind, drawn bold before the title; a plain todo has none.
+export const KIND_TAGS: Record<Kind, { label: string; color?: string } | null> = {
+  todo: null,
+  deferred: { label: 'PARKED', color: 'warning' },
+  proposal: { label: 'PROPOSAL', color: 'suggestion' },
+  discussion: { label: '💬' },
+}
+
 export function kindTag(kind: Kind): string {
   if (kind === 'deferred') return '[parked] '
   if (kind === 'proposal') return '[proposal] '

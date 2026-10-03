@@ -52,6 +52,7 @@ test('Send now submits as the user and marks in progress', async ($, on) => {
   await $.tool.call({ tool: 'mcp__todo-ledger__park_item', title: 'go do', kind: 'todo' })
   const id = JSON.parse([...disk.values()][0]).id
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'title-' + id })
   await ui.press({ key: 'start-' + id })
   await ui.select({ key: 'start-choice-' + id, value: 'send' })
   expect(calls.submits[0]).toContain('go do')
@@ -77,6 +78,7 @@ test('New terminal session runs wt in the item project', async ($, on) => {
   await $.tool.call({ tool: 'mcp__todo-ledger__park_item', title: 'term', kind: 'todo' })
   const id = JSON.parse([...disk.values()][0]).id
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'title-' + id })
   await ui.press({ key: 'start-' + id })
   await ui.select({ key: 'start-choice-' + id, value: 'terminal' })
   expect(calls.argv.some((a) => a[0] === 'wt' && a[2] === 'D:\\Projects\\Demo')).toBe(true)
@@ -88,6 +90,7 @@ test('New terminal session keeps ; and newlines off the command line and writes 
   await $.tool.call({ tool: 'mcp__todo-ledger__park_item', title: 'fix a; then b', kind: 'todo', body: 'line1\nline2; more' })
   const id = JSON.parse([...disk.values()][0]).id
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'title-' + id })
   await ui.press({ key: 'start-' + id })
   await ui.select({ key: 'start-choice-' + id, value: 'terminal' })
   const wt = calls.argv.find((a) => a[0] === 'wt')!
@@ -105,6 +108,7 @@ test('New terminal session falls back to cmd start without && when wt fails', as
   await $.tool.call({ tool: 'mcp__todo-ledger__park_item', title: 'term2', kind: 'todo' })
   const id = JSON.parse([...disk.values()][0]).id
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'title-' + id })
   await ui.press({ key: 'start-' + id })
   await ui.select({ key: 'start-choice-' + id, value: 'terminal' })
   const fb = calls.argv.find((a) => a[0] === 'cmd' && a[2] === 'start')!
@@ -130,6 +134,7 @@ test('Start chooser can be cancelled', async ($, on) => {
   await $.tool.call({ tool: 'mcp__todo-ledger__park_item', title: 'cancel me', kind: 'todo' })
   const id = JSON.parse([...disk.values()][0]).id
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'title-' + id })
   await ui.press({ key: 'start-' + id })
   await ui.press({ key: 'start-cancel-' + id })
   expect(await ui.find({ key: 'start-' + id })).toBeTruthy()

@@ -1,10 +1,10 @@
-﻿import { formatList, parseTodoCommand, parseTodosArgs } from '../src/commands.ts'
+import { formatList, parseTodoCommand, parseTodosArgs } from '../src/commands.ts'
 import { SCAN_SYSTEM, buildScanPrompt, parseScanReply, shouldScan } from '../src/scan.ts'
 import { KINDS, cleanTitle, dedupeKey, isOpen, makeItem, parseItem, randomHex4 } from '../src/item.ts'
 import type { Item, Kind, Origin, Source, Status } from '../src/item.ts'
 import { fallbackArgv, startOptions, startPrompt, terminalArgv, terminalTask } from '../src/start.ts'
 import type { StartChoice } from '../src/start.ts'
-import { TABS, age, bandLabel, itemsForTab, kindTag } from '../src/view.ts'
+import { KIND_TAGS, TABS, age, bandLabel, itemsForTab, tabOf } from '../src/view.ts'
 import type { Tab } from '../src/view.ts'
 
 // Every function below that takes $ must stay top-level in this file: the validator
@@ -19,7 +19,6 @@ const PANE = 'todo-ledger'
 let paneOpen = false
 let tab: Tab = 'agent'
 let allProjects = false
-let newKind: Kind = 'todo'
 let expandedId: string | null = null
 let notingId: string | null = null
 let startingId: string | null = null
@@ -202,12 +201,6 @@ async function addNote($: any, id: string, text: string): Promise<void> {
   }
 }
 
-async function addFromPane($: any, text: string): Promise<void> {
-  if (!text.trim()) return
-  try { await capture($, { title: text, kind: newKind, origin: 'human', source: 'manual' }) }
-  catch (err: any) { $.ui.toast('Todo not saved: ' + err.message) }
-}
-
 async function copyText($: any, text: string, okMessage: string, failPrefix: string): Promise<void> {
   const r = await $.ui.copy({ text })
   $.ui.toast(r?.isCopied ? okMessage : failPrefix + ' (' + (r?.reason ?? 'unknown') + ')')
@@ -376,7 +369,7 @@ export function register(on) {
 
   on('ui.render', { component: 'Pane' }, async ($, e, next) => {
     if (e.requestId !== PANE) return next(e)
-    const { Box, Text, Button, Input, Select } = $.ui.resolve(e)
+    const { Box, Text, Button, Input } = $.ui.resolve(e)
     // Mobile's element table has no Input or Select.
     const canInput = e.surface !== 'mobile'
     const redraw = () => $.ui.invalidate('ui.render')
@@ -387,73 +380,99 @@ export function register(on) {
     try { here = await $.session.cwd() } catch { /* keep the session.start value */ }
     const rows = itemsForTab(cache, tab, allProjects ? null : here)
 
-    const tabRow = Box({
+    const scoped = cache.filter((i) => allProjects || i.project.toLowerCase() === here.toLowerCase())
+    const count = (t: Tab) => scoped.filter((i) => tabOf(i) === t).length
+    const isDesktop = e.surface === 'desktop'
+    const ruleWidth = Math.max(10, Math.min(e.props.bodyColumns ?? 40, 60))
+    const rule = () => Text({ dimColor: true, children: ['─'.repeat(ruleWidth)] })
+
+    // Header: tabs with open counts on the left, the scope toggle on the right.
+    const header = Box({
       flexDirection: 'row',
-      columnGap: 2,
+      justifyContent: 'space-between',
       children: [
-        ...TABS.map((t) =>
-          Button({ key: 'tab-' + t.id, label: t.label, hotkey: t.hotkey, plain: true, dimColor: tab !== t.id,
-            onPress: () => { tab = t.id; startingId = null; notingId = null; redraw() } })),
-        ...(canInput
-          ? [Select({ key: 'scope', label: 'Scope', value: allProjects ? 'all' : 'project',
-              options: [{ value: 'project', label: 'This project' }, { value: 'all', label: 'All projects' }],
-              onSelect: (v: string) => { allProjects = v === 'all'; redraw() } })]
-          : []),
+        Box({
+          flexDirection: 'row',
+          columnGap: 3,
+          children: TABS.map((t) =>
+            Button({ key: 'tab-' + t.id, plain: true, hotkey: t.hotkey, dimColor: tab !== t.id,
+              label: t.id === 'done' ? t.label : t.label + ' ' + count(t.id),
+              onPress: () => { tab = t.id; startingId = null; notingId = null; redraw() } })),
+        }),
+        Button({ key: 'scope', plain: true, hotkey: 'p', dimColor: true,
+          label: (allProjects ? 'All projects' : 'This project') + ' ⇄',
+          onPress: () => { allProjects = !allProjects; redraw() } }),
       ],
     })
 
-    const addRow = canInput
-      ? [Box({
-          flexDirection: 'row',
-          columnGap: 1,
-          children: [
-            Input({ key: 'new-item', label: 'New', placeholder: 'type an item and press Enter', value: '', submitLabel: 'add',
-              onSubmit: (v: string) => addFromPane($, v) }),
-            Select({ key: 'new-kind', label: 'Kind', value: newKind,
-              options: KINDS.map((k) => ({ value: k, label: k })),
-              onSelect: (v: string) => { newKind = v as Kind; redraw() } }),
-          ],
-        })]
-      : []
+    const actionsFor = (i: Item) => {
+      if (startingId === i.id) return [startChooser($, e, i)]
+      if (notingId === i.id && canInput) {
+        return [Input({ key: 'note-input-' + i.id, label: 'Note', value: '', submitLabel: 'save', autoFocus: true,
+          onSubmit: async (v: string) => { notingId = null; await addNote($, i.id, v); redraw() } })]
+      }
+      if (tab === 'done') return [Button({ key: 'reopen-' + i.id, label: 'Reopen', onPress: () => markStatus($, i.id, 'open') })]
+      return [
+        Button({ key: 'start-' + i.id, label: 'Start', variant: 'primary', onPress: () => { startingId = i.id; redraw() } }),
+        Button({ key: 'done-' + i.id, label: 'Done', onPress: () => markStatus($, i.id, 'done') }),
+        Button({ key: 'drop-' + i.id, label: 'Drop', onPress: () => markStatus($, i.id, 'dropped') }),
+        ...(canInput ? [Button({ key: 'note-' + i.id, label: 'Note', onPress: () => { notingId = i.id; redraw() } })] : []),
+      ]
+    }
 
-    const itemRow = (i: Item) => {
-      const meta = [allProjects ? i.project.split('\\').pop() : null, age(now, i.createdAt)].filter(Boolean).join(' · ')
-      const actions = startingId === i.id
-        ? [startChooser($, e, i)]
-        : notingId === i.id && canInput
-          ? [Input({ key: 'note-input-' + i.id, label: 'Note', value: '', submitLabel: 'save', autoFocus: true,
-              onSubmit: async (v: string) => { notingId = null; await addNote($, i.id, v); redraw() } })]
-          : tab === 'done'
-            ? [Button({ key: 'reopen-' + i.id, label: 'Reopen', onPress: () => markStatus($, i.id, 'open') })]
-            : [
-                Button({ key: 'start-' + i.id, label: 'Start', onPress: () => { startingId = i.id; redraw() } }),
-                Button({ key: 'done-' + i.id, label: 'Done', onPress: () => markStatus($, i.id, 'done') }),
-                Button({ key: 'drop-' + i.id, label: 'Drop', onPress: () => markStatus($, i.id, 'dropped') }),
-                ...(canInput
-                  ? [Button({ key: 'note-' + i.id, label: 'Note', onPress: () => { notingId = i.id; redraw() } })]
-                  : []),
-              ]
-      const head = Box({
-        flexDirection: 'row',
-        columnGap: 1,
+    // One card per item: tag + title, then a dim meta line with the actions.
+    // Desktop reveals the actions on hover; the terminal has no pointer, so it
+    // shows them for the selected row (press the title, or Tab to it + Enter).
+    const itemCard = (i: Item) => {
+      const selected = expandedId === i.id
+      const busy = startingId === i.id || notingId === i.id
+      const tag = KIND_TAGS[i.kind]
+      const meta = [i.project.split('\\').filter(Boolean).pop(), age(now, i.createdAt)].filter(Boolean).join(' · ')
+      const actionsBox = isDesktop && !selected && !busy
+        // No key here: a keyed Box would start its own hover scope, and a hidden
+        // one can never be hovered. Unkeyed, it lights with the keyed row above it.
+        ? Box({ flexDirection: 'row', columnGap: 1, display: 'none', hover: { display: 'flex' }, children: actionsFor(i) })
+        : selected || busy || isDesktop
+          ? Box({ flexDirection: 'row', columnGap: 1, children: actionsFor(i) })
+          : null
+      const detail = selected ? [i.body, ...i.notes.map((n) => (n.by === 'human' ? 'You' : 'Claude') + ': ' + n.text)].filter(Boolean) : []
+      return Box({
+        key: 'row-' + i.id,
+        flexDirection: 'column',
+        marginBottom: 1,
         children: [
-          Button({ key: 'title-' + i.id, plain: true, label: kindTag(i.kind) + i.title,
-            onPress: () => { expandedId = expandedId === i.id ? null : i.id; redraw() } }),
-          Text({ dimColor: true, children: [meta] }),
-          ...actions,
+          Box({
+            flexDirection: 'row',
+            columnGap: 1,
+            children: [
+              ...(tag ? [Text({ bold: true, color: tag.color, children: [tag.label] })] : []),
+              Button({ key: 'title-' + i.id, plain: true, label: i.title,
+                onPress: () => { expandedId = selected ? null : i.id; startingId = null; notingId = null; redraw() } }),
+            ],
+          }),
+          Box({
+            flexDirection: 'row',
+            columnGap: 2,
+            paddingLeft: 2,
+            children: [Text({ dimColor: true, children: [meta] }), ...(actionsBox ? [actionsBox] : [])],
+          }),
+          ...detail.map((d) => Text({ dimColor: true, wrap: 'wrap', children: ['    ' + d] })),
         ],
       })
-      if (expandedId !== i.id) return head
-      const detail = [i.body, ...i.notes.map((n) => n.by + ': ' + n.text)].filter(Boolean)
-      return Box({ flexDirection: 'column', children: [head, ...detail.map((d) => Text({ dimColor: true, children: ['   ' + d] }))] })
     }
+
+    const empty = Text({ dimColor: true, wrap: 'wrap', children: [
+      tab === 'done' ? 'Nothing closed yet.' : 'Nothing open. Claude adds deferred work and proposals here; add your own with /todo add <text>.',
+    ] })
 
     return Box({
       flexDirection: 'column',
       children: [
-        tabRow,
-        ...addRow,
-        ...(rows.length ? rows.map(itemRow) : [Text({ dimColor: true, children: ['Nothing here.'] })]),
+        header,
+        rule(),
+        ...(rows.length ? rows.map(itemCard) : [empty]),
+        rule(),
+        Text({ dimColor: true, children: [(isDesktop ? 'Hover or click a row for actions' : 'Select a title for actions') + ' · /todo add <text> to add'] }),
       ],
     })
   })
