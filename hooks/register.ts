@@ -15,6 +15,7 @@ let cache: Item[] = []
 const reportedBad = new Set<string>()
 let parkedThisTurn = false
 let lastUserText = ''
+let deletingId: string | null = null
 const STATUS_VALUES = ['open', 'in_progress', 'done', 'dropped']
 
 const PANE = 'todo-ledger'
@@ -346,6 +347,23 @@ function startChooser($: any, e: any, item: Item) {
   })
 }
 
+// Permanent deletion: only for items already dropped, only by the person (pane or
+// /todo delete). Agents' tools can drop but never delete.
+async function deleteItem($: any, idPrefix: string): Promise<{ ok: true; title: string } | { ok: false; message: string }> {
+  const items = await loadAll($)
+  const found = items.filter((i) => i.id.startsWith(idPrefix))
+  if (found.length !== 1) return { ok: false, message: 'No single item matches id ' + idPrefix }
+  const item = found[0]
+  if (item.status !== 'dropped') return { ok: false, message: 'Only dropped items can be deleted. Drop it first: ' + item.title }
+  if (!/^[A-Za-z0-9_-]+$/.test(item.id)) return { ok: false, message: 'Refused: unexpected characters in id ' + item.id }
+  const path = (await itemsDir($)) + '\\' + item.id + '.json'
+  const r = await $.process.run(['cmd', '/c', 'del', '/q', path])
+  if (r.exitCode !== 0 || (await $.fs.exists(path))) return { ok: false, message: 'Could not delete ' + item.title + ': ' + (r.stderr.trim() || 'file still there') }
+  cache = cache.filter((i) => i.id !== item.id)
+  $.ui.invalidate('ui.render')
+  return { ok: true, title: item.title }
+}
+
 async function runTodo($: any, args: string): Promise<{ text: string }> {
   const cmd = parseTodoCommand(args)
   if (cmd.action === 'error') return { text: cmd.message }
@@ -353,6 +371,10 @@ async function runTodo($: any, args: string): Promise<{ text: string }> {
     if (cmd.action === 'done') {
       const item = await setStatus($, cmd.idPrefix, 'done')
       return { text: item ? 'Done: ' + item.title : 'No single item matches id ' + cmd.idPrefix }
+    }
+    if (cmd.action === 'delete') {
+      const r = await deleteItem($, cmd.idPrefix)
+      return { text: r.ok ? 'Deleted forever: ' + r.title : r.message }
     }
     const r = await capture($, { title: cmd.text, kind: cmd.kind, origin: 'human', source: 'manual' })
     return { text: (r.isNew ? 'Added ' : 'Already listed, noted: ') + r.item.title }
@@ -499,7 +521,7 @@ export function register(on) {
     // Rules are cut, never wrapped, so a narrow dock can't break them onto two lines.
     const cols = Math.max(12, (e.props.bodyColumns ?? 40) - 1)
     const rule = () => Text({ dimColor: true, wrap: 'truncate-end', children: ['─'.repeat(cols)] })
-    const select = (id: string | null) => { expandedId = id; startingId = null; notingId = null; redraw() }
+    const select = (id: string | null) => { expandedId = id; startingId = null; notingId = null; deletingId = null; redraw() }
 
     // Row 1: where the list comes from, kept apart from the tabs.
     const scopeRow = Box({
@@ -536,7 +558,24 @@ export function register(on) {
     // Start, Done, Drop, Note: always the same order, Start the one primary.
     const actionsFor = (i: Item) => {
       if (startingId === i.id) return [startChooser($, e, i)]
-      if (tab === 'done') return [Button({ key: 'reopen-' + i.id, label: 'Reopen', onPress: () => markStatus($, i.id, 'open') })]
+      if (tab === 'done') {
+        const reopen = Button({ key: 'reopen-' + i.id, label: 'Reopen', onPress: () => markStatus($, i.id, 'open') })
+        if (i.status !== 'dropped') return [reopen]
+        // Two-step: the first press arms it; only Confirm deletes the file.
+        if (deletingId === i.id) {
+          return [
+            Button({ key: 'delete-confirm-' + i.id, label: 'Confirm delete', onPress: async () => {
+              deletingId = null
+              const r = await deleteItem($, i.id)
+              if (!r.ok) $.ui.toast(r.message)
+              else { expandedId = null; $.ui.toast('Deleted forever: ' + r.title) }
+              redraw()
+            } }),
+            Button({ key: 'delete-cancel-' + i.id, label: 'Cancel', onPress: () => { deletingId = null; redraw() } }),
+          ]
+        }
+        return [reopen, Button({ key: 'delete-' + i.id, label: 'Delete forever', onPress: () => { deletingId = i.id; redraw() } })]
+      }
       return [
         Button({ key: 'start-' + i.id, label: 'Start', variant: 'primary', onPress: () => { startingId = i.id; notingId = null; redraw() } }),
         Button({ key: 'done-' + i.id, label: 'Done', onPress: () => markStatus($, i.id, 'done') }),

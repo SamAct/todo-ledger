@@ -45,6 +45,7 @@ export function setup(on: any, opts: {
       return { value: { exitCode: 1, stdout: '', stderr: 'not found', isStdoutTruncated: false, isStderrTruncated: false } }
     }
     if (e.argv[2] === 'move') { disk.set(e.argv[5], disk.get(e.argv[4])!); disk.delete(e.argv[4]) }
+    if (e.argv[2] === 'del') disk.delete(String(e.argv.at(-1)))
     // Session-name lookup: find the transcript, then its custom-title lines.
     if (e.argv[2] === 'dir' && opts.sessionTitle) return { value: { exitCode: 0, stdout: HOME + '\\.claude\\projects\\D--x\\sess-1.jsonl\r\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     if (e.argv[0] === 'findstr' && opts.sessionTitle) return { value: { exitCode: 0, stdout: JSON.stringify({ type: 'custom-title', customTitle: opts.sessionTitle, sessionId: 'sess-1' }) + '\r\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }

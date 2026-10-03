@@ -4,14 +4,16 @@ import type { Item, Kind } from './item.ts'
 export type TodoCommand =
   | { action: 'add'; kind: Kind; text: string }
   | { action: 'done'; idPrefix: string }
+  | { action: 'delete'; idPrefix: string }
   | { action: 'error'; message: string }
 
 const FLAGS: Record<string, Kind> = { '-d': 'deferred', '-p': 'proposal', '-n': 'discussion' }
-const USAGE = 'Usage: /todo add [-d|-p|-n] <text>  or  /todo done <id>'
+const USAGE = 'Usage: /todo add [-d|-p|-n] <text>  ·  /todo done <id>  ·  /todo delete <id> (dropped items only)'
 
 export function parseTodoCommand(args: string): TodoCommand {
   const parts = args.trim().split(/\s+/).filter(Boolean)
   if (parts[0] === 'done' && parts[1]) return { action: 'done', idPrefix: parts[1] }
+  if (parts[0] === 'delete' && parts[1]) return { action: 'delete', idPrefix: parts[1] }
   if (parts[0] !== 'add') return { action: 'error', message: USAGE }
   let kind: Kind = 'todo'
   let rest = parts.slice(1)
