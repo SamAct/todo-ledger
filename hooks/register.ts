@@ -713,7 +713,7 @@ export function register(on) {
               ],
             }),
           ] }),
-          Text({ key: 'sep-' + i.id, dimColor: true, wrap: 'truncate-end', children: ['─'.repeat(cols)] }),
+          Text({ dimColor: true, wrap: 'truncate-end', children: ['─'.repeat(cols)] }),
         ],
       })
     }
