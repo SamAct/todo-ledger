@@ -12,7 +12,7 @@ export function setup(on: any, opts: {
   sessionTitle?: string
 } = {}) {
   const disk = new Map<string, string>(Object.entries(opts.files ?? {}))
-  const calls = { argv: [] as string[][], submits: [] as string[], fills: [] as string[], copies: [] as string[], logs: [] as string[], toasts: [] as string[], tools: [] as string[], toolDescs: {} as Record<string, string>, commands: [] as string[], opens: [] as string[], models: 0, reads: 0, prompts: [] as string[] }
+  const calls = { argv: [] as string[][], submits: [] as string[], fills: [] as string[], copies: [] as string[], logs: [] as string[], toasts: [] as string[], tools: [] as string[], toolDescs: {} as Record<string, string>, commands: [] as string[], opens: [] as string[], openArgs: [] as any[], models: 0, reads: 0, prompts: [] as string[] }
   const store = new Map<string, unknown>()
 
   mock.env(on, opts.noHome ? {} : { USERPROFILE: HOME })
@@ -65,7 +65,7 @@ export function setup(on: any, opts: {
     return { value: opts.copyFails ? { isCopied: false, reason: 'no-clipboard' } : { isCopied: true } } })
   on('ui.log', ($: any, e: any) => { calls.logs.push(e.text); return { value: undefined } })
   on('ui.toast', ($: any, e: any) => { calls.toasts.push(e.text); return { value: undefined } })
-  on('ui.open', ($: any, e: any) => { calls.opens.push(e.id)
+  on('ui.open', ($: any, e: any) => { calls.opens.push(e.id); calls.openArgs.push(e)
     return { value: opts.openPlaced === false ? { isPlaced: false, reason: 'no room' } : { isPlaced: true } } })
   on('ui.close', () => ({ value: undefined }))
   on('ui.render', () => ({ type: 'Text', props: {}, children: ['engine'] }))

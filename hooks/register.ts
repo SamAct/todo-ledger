@@ -5,7 +5,7 @@ import { KINDS, cleanTitle, clip, dedupeKey, wrapLines, isOpen, lastSessionTitle
 import type { Item, Kind, Origin, Source, Status } from '../src/item.ts'
 import { fallbackArgv, startOptions, startPrompt, terminalArgv, terminalTask } from '../src/start.ts'
 import type { StartChoice } from '../src/start.ts'
-import { TABS, age, bandLabel, displayOrder, firstView, groupItems, isNew, itemsForTab, tabOf } from '../src/view.ts'
+import { TABS, age, bandLabel, displayOrder, firstView, groupItems, itemsForTab, tabOf } from '../src/view.ts'
 import type { Tab } from '../src/view.ts'
 
 // Every function below that takes $ must stay top-level in this file: the validator
@@ -22,19 +22,16 @@ const STATUS_VALUES = ['open', 'in_progress', 'done', 'dropped']
 
 const PANE = 'todo-ledger'
 // The dock width asked for on open; a width the person dragged wins (the engine has no minimum).
-const PANE_COLUMNS = 50
+const PANE_COLUMNS = 72
 let paneOpen = false
 let tab: Tab = 'agent'
 let allProjects = false
 let expandedId: string | null = null
 let notingId: string | null = null
 let startingId: string | null = null
-let lastSeenAt: string | null = null
-// The visit before this one: rows newer than it carry a "new" mark while the pane is open.
-let prevSeenAt: string | null = null
 let allNotesId: string | null = null
 let cwd = ''
-// One accent colour for what needs attention (the open card, marks, "new",
+// One accent colour for what needs attention (the open card, the decision mark,
 // started items); everything else is hierarchy by weight, dimming and spacing.
 // A theme key, so light and dark themes both fit.
 const ACCENT = 'suggestion'
@@ -299,9 +296,6 @@ async function togglePane($: any): Promise<void> {
   const view = firstView(cache, here, tab, allProjects)
   tab = view.tab
   allProjects = view.allProjects
-  prevSeenAt = lastSeenAt
-  lastSeenAt = new Date(await $.clock.now()).toISOString()
-  try { await $.store.set('lastSeenAt', lastSeenAt) } catch { /* only affects the "new" count */ }
   const r = await $.ui.open({ id: PANE, title: "ToDo's", focus: true, closeOnEscape: true, columns: PANE_COLUMNS })
   // Only a placed pane counts as open; otherwise the next press must try to open it again.
   paneOpen = r?.isPlaced === true
@@ -372,26 +366,19 @@ async function doStart($: any, item: Item, choice: StartChoice): Promise<void> {
   }
 }
 
+// The Start step: one button per way to start, in place of the card's actions, so
+// a choice is a single press (a picker needed focus, arrows and Enter). The first
+// is the main one; Cancel is plain and dim so it never competes.
 function startChooser($: any, e: any, item: Item) {
-  const { Box, Button, Select } = $.ui.resolve(e)
-  return Box({
-    flexDirection: 'row',
-    columnGap: 1,
-    children: [
-      Select({
-        key: 'start-choice-' + item.id,
-        label: 'Start',
-        options: startOptions(e.surface === 'desktop' ? 'desktop' : 'terminal'),
-        autoFocus: true,
-        onSelect: async (v: string) => {
-          startingId = null
-          await doStart($, item, v as StartChoice)
-          $.ui.invalidate('ui.render')
-        },
-      }),
-      Button({ key: 'start-cancel-' + item.id, label: 'Cancel', onPress: () => { startingId = null; $.ui.invalidate('ui.render') } }),
-    ],
-  })
+  const { Button } = $.ui.resolve(e)
+  const redraw = () => $.ui.invalidate('ui.render')
+  return [
+    ...startOptions(e.surface === 'desktop' ? 'desktop' : 'terminal').map((o, k) =>
+      Button({ key: 'start-' + o.value + '-' + item.id, label: o.label, hotkey: o.hotkey,
+        ...(k === 0 ? { variant: 'primary' as const, autoFocus: true as const } : {}),
+        onPress: async () => { startingId = null; await doStart($, item, o.value as StartChoice); redraw() } })),
+    Button({ key: 'start-cancel-' + item.id, label: 'Cancel', plain: true, dimColor: true, onPress: () => { startingId = null; redraw() } }),
+  ]
 }
 
 // Permanent deletion: only for items already dropped, only by the person (pane or
@@ -464,11 +451,7 @@ async function registerTool($: any, spec: any): Promise<void> {
 
 export function register(on) {
   on('session.start', async ($, e, next) => {
-    try {
-      cwd = await $.session.cwd()
-      const seen = await $.store.get('lastSeenAt')
-      lastSeenAt = typeof seen === 'string' ? seen : null
-    } catch { lastSeenAt = null }
+    try { cwd = await $.session.cwd() } catch { /* keep '' until a render reads it */ }
     // Picks up items other sessions write; the timer stops when the module reloads.
     $.clock.every(SYNC_MS, () => syncIfChanged($))
     $.clock.after(0, () => lookupSessionName($))
@@ -543,7 +526,7 @@ export function register(on) {
     await refreshIfStale($)
     let here = cwd
     try { here = await $.session.cwd() } catch { /* keep the session.start value */ }
-    const label = bandLabel(cache, lastSeenAt, here)
+    const label = bandLabel(cache, here)
     const { Box, Button } = $.ui.resolve(e)
     const mine = Button({ key: 'ledger-toggle', label, plain: true, onPress: () => safeToggle($) })
     return Box({ key: 'ledger-footer', flexDirection: 'row', columnGap: 2, alignItems: 'center',
@@ -554,7 +537,7 @@ export function register(on) {
     if (e.requestId !== PANE) return next(e)
     try {
     const { Box, Text, Button, Input } = $.ui.resolve(e)
-    // Mobile's element table has no Input or Select.
+    // Mobile's element table has no Input, so the note composer is skipped there.
     const canInput = e.surface !== 'mobile'
     const redraw = () => $.ui.invalidate('ui.render')
     const now = await $.clock.now()
@@ -567,7 +550,6 @@ export function register(on) {
 
     const scoped = cache.filter((i) => allProjects || i.project.toLowerCase() === here.toLowerCase())
     const count = (t: Tab) => scoped.filter((i) => tabOf(i) === t).length
-    const openCount = scoped.filter((i) => tabOf(i) !== 'done').length
     const select = (id: string | null) => { expandedId = id; startingId = null; notingId = null; deletingId = null; redraw() }
 
     // Closing an item from its card opens the next one, so a run of items is
@@ -587,7 +569,8 @@ export function register(on) {
       select(expandedId === i.id ? (following?.id ?? null) : expandedId)
     }
 
-    // Row 1: where the list comes from, kept apart from the tabs.
+    // Row 1: where the list comes from, with a dim refresh at the far end. The open
+    // count is not repeated here: the tabs carry it.
     const scopeRow = Box({
       flexDirection: 'row',
       justifyContent: 'space-between',
@@ -595,17 +578,10 @@ export function register(on) {
         Button({ key: 'scope', plain: true, hotkey: 'p',
           label: (allProjects ? 'All projects' : 'This project') + ' ▾',
           onPress: () => { allProjects = !allProjects; select(null) } }),
-        Box({
-          flexDirection: 'row',
-          columnGap: 2,
-          children: [
-            Text({ dimColor: true, children: [openCount + ' open'] }),
-            Button({ key: 'refresh', plain: true, dimColor: true, hotkey: 'r', label: '↻',
-              onPress: async () => {
-                try { await forceRefresh($) } catch (err: any) { $.ui.toast('Refresh failed: ' + err.message) }
-              } }),
-          ],
-        }),
+        Button({ key: 'refresh', plain: true, dimColor: true, hotkey: 'r', label: '↻',
+          onPress: async () => {
+            try { await forceRefresh($) } catch (err: any) { $.ui.toast('Refresh failed: ' + err.message) }
+          } }),
       ],
     })
 
@@ -613,7 +589,7 @@ export function register(on) {
     const tabRow = Box({
       flexDirection: 'row',
       columnGap: 3,
-      marginY: 1,
+      marginBottom: 1,
       children: TABS.map((t) =>
         Button({ key: 'tab-' + t.id, plain: true, hotkey: t.hotkey, dimColor: tab !== t.id,
           label: t.label + ' ' + count(t.id),
@@ -621,15 +597,17 @@ export function register(on) {
     })
 
     // The card's actions in one fixed order, the first the primary. Proposals are
-    // decided (Approve / Reject) rather than worked, so they lead with that.
+    // decided (Approve / Reject) rather than worked, so they lead with that. While a
+    // note is being typed the Note button turns into Cancel and letter keys rest.
     const actionsFor = (i: Item) => {
-      if (startingId === i.id) return [startChooser($, e, i)]
-      // Letter keys act on the open card, except while a note is being typed.
+      if (startingId === i.id) return startChooser($, e, i)
+      const noting = notingId === i.id
       const hk = (k: string) => (notingId === null ? { hotkey: k } : {})
       if (tab === 'done') {
-        const reopen = Button({ key: 'reopen-' + i.id, label: 'Reopen', ...hk('o'), onPress: () => markStatus($, i.id, 'open') })
+        const reopen = Button({ key: 'reopen-' + i.id, label: 'Reopen', variant: 'primary', ...hk('o'), onPress: () => markStatus($, i.id, 'open') })
         if (i.status !== 'dropped') return [reopen]
-        // Two-step: the first press arms it; only Confirm deletes the file.
+        // Two-step: the first press arms it; only Confirm deletes the file. Neither is
+        // primary: nothing should invite an irreversible press.
         if (deletingId === i.id) {
           return [
             Button({ key: 'delete-confirm-' + i.id, label: 'Confirm delete', onPress: async () => {
@@ -639,17 +617,18 @@ export function register(on) {
               else { expandedId = null; $.ui.toast('Deleted forever: ' + r.title) }
               redraw()
             } }),
-            Button({ key: 'delete-cancel-' + i.id, label: 'Cancel', onPress: () => { deletingId = null; redraw() } }),
+            Button({ key: 'delete-cancel-' + i.id, label: 'Cancel', plain: true, dimColor: true, onPress: () => { deletingId = null; redraw() } }),
           ]
         }
-        return [reopen, Button({ key: 'delete-' + i.id, label: 'Delete forever', onPress: () => { deletingId = i.id; redraw() } })]
+        return [reopen, Button({ key: 'delete-' + i.id, label: 'Delete forever', dimColor: true, onPress: () => { deletingId = i.id; redraw() } })]
       }
       const start = Button({ key: 'start-' + i.id, label: 'Start', ...hk('s'),
         ...(i.kind === 'proposal' ? {} : { variant: 'primary' as const }),
         onPress: () => { startingId = i.id; notingId = null; redraw() } })
-      const note = canInput && notingId !== i.id
-        ? [Button({ key: 'note-' + i.id, label: 'Note', ...hk('n'), onPress: () => { notingId = i.id; startingId = null; redraw() } })]
-        : []
+      const note = !canInput ? []
+        : noting
+          ? [Button({ key: 'note-cancel-' + i.id, label: 'Cancel', plain: true, dimColor: true, onPress: () => { notingId = null; redraw() } })]
+          : [Button({ key: 'note-' + i.id, label: 'Note', ...hk('n'), onPress: () => { notingId = i.id; startingId = null; redraw() } })]
       if (i.kind === 'proposal') {
         return [
           Button({ key: 'approve-' + i.id, label: 'Approve', variant: 'primary', ...hk('a'), onPress: () => closeItem(i, i.status, 'todo') }),
@@ -666,82 +645,77 @@ export function register(on) {
       ]
     }
 
+    // Row width in title characters. The desktop draws a proportional font, about
+    // 1.4 characters per cell, so text wraps later there to use the pane's real width.
+    const cols = Math.max(12, (e.props.bodyColumns ?? 40) - 1)
+    const wide = e.surface === 'desktop' ? 1.4 : 1
+    // Row chrome: mark and gap (2), a spare column.
+    const titleCols = Math.max(16, Math.floor((cols - 3) * wide))
+
     const projectOf = (i: Item) => i.project.split('\\').filter(Boolean).pop() ?? i.project
-    // Project, session and age each in its own faint tint (a mid-tone drawn dim,
-    // readable on light and dark). Buttons take no colour, so this line is text:
-    // the title lines open the card.
+    // Where and when, each part in its own faint tint (a mid-tone drawn dim, readable
+    // on light and dark). The project is named only when the list spans projects:
+    // inside one project it would be the same word on every row. Closed items show
+    // how long ago they closed, which is also the Done tab's order.
     const metaLine = (i: Item) => {
       const room = Math.max(12, titleCols - 8)
       const tint = (text: string, color: string) => Text({ color, dimColor: true, wrap: 'truncate-end', children: [text] })
       const dot = Text({ dimColor: true, children: ['·'] })
-      return Box({ key: 'meta-' + i.id, flexDirection: 'row', columnGap: 1, children: [
-        tint(clip(projectOf(i), Math.ceil(room / 2)), META.project), dot,
-        tint(clip(sessionLabel(i), Math.floor(room / 2)), META.session), dot,
-        tint(age(now, i.createdAt), META.age),
-      ] })
+      const when = tint(age(now, tab === 'done' ? i.updatedAt : i.createdAt), META.age)
+      const session = tint(clip(sessionLabel(i), allProjects ? Math.floor(room / 2) : room), META.session)
+      return Box({ key: 'meta-' + i.id, flexDirection: 'row', columnGap: 1, children: allProjects
+        ? [tint(clip(projectOf(i), Math.ceil(room / 2)), META.project), dot, session, dot, when]
+        : [session, dot, when] })
     }
-    // List titles stay on one line; the open card shows them whole.
-    const cols = Math.max(12, (e.props.bodyColumns ?? 40) - 1)
-    // Row chrome: mark and gap (2), a spare column.
-    // The desktop draws a proportional font, about 1.4 characters per cell,
-    // so titles wrap later there to use the pane's real width.
-    const wide = e.surface === 'desktop' ? 1.4 : 1
-    const titleCols = Math.max(16, Math.floor((cols - 3) * wide))
-    const fresh = (i: Item) => tab !== 'done' && isNew(i, prevSeenAt)
     // A started item shows ▶ in place of its group mark.
     const markOf = (i: Item, mark: string, color?: string) =>
       i.status === 'in_progress' ? Text({ color: ACCENT, children: ['▶'] }) : Text({ color, dimColor: !color, children: [mark] })
 
-    // Scanning: entries split by a light dotted divider (none after a group's last
-    // entry, no side borders). The title gets up to two lines; both open the card.
+    // Scanning: a mark, the title on up to two lines (both open the card), the meta
+    // line. Rows are set apart by one blank line, none after a group's last; no
+    // borders, no rules.
     const compactRow = (i: Item, mark: string, color: string | undefined, last: boolean) => {
       const open = () => select(i.id)
-      const lines = wrapLines(i.title, titleCols - (fresh(i) ? 4 : 0), 2)
+      const lines = wrapLines(i.title, titleCols, 2)
       return Box({
         key: 'row-' + i.id,
-        flexDirection: 'column',
+        flexDirection: 'row',
+        columnGap: 1,
+        alignItems: 'flex-start',
+        ...(last ? {} : { marginBottom: 1 }),
         children: [
-          Box({ flexDirection: 'row', columnGap: 1, alignItems: 'flex-start', children: [
-            markOf(i, mark, color),
-            Box({
-              flexDirection: 'column',
-              flexGrow: 1,
-              flexShrink: 1,
-              children: [
-                Box({ flexDirection: 'row', columnGap: 1, children: [
-                  Button({ key: 'title-' + i.id, plain: true, label: lines[0] ?? '', onPress: open }),
-                  ...(fresh(i) ? [Text({ color: ACCENT, children: ['new'] })] : []),
-                ] }),
-                ...(lines[1] ? [Button({ key: 'title2-' + i.id, plain: true, label: lines[1], onPress: open })] : []),
-                metaLine(i),
-              ],
-            }),
-          ] }),
-          ...(last ? [] : [Text({ dimColor: true, wrap: 'truncate-end', children: ['┈'.repeat(Math.floor(cols * wide))] })]),
+          markOf(i, mark, color),
+          Box({
+            flexDirection: 'column',
+            flexGrow: 1,
+            flexShrink: 1,
+            children: [
+              Button({ key: 'title-' + i.id, plain: true, label: lines[0] ?? '', onPress: open }),
+              ...(lines[1] ? [Button({ key: 'title2-' + i.id, plain: true, label: lines[1], onPress: open })] : []),
+              metaLine(i),
+            ],
+          }),
         ],
       })
     }
 
-    // One note: who and when on a dim line, the text under it.
+    // One note: who and when on a dim line, the text under it; no blank between notes.
     const noteView = (n: { by: string; text: string; at: string }, k: number, id: string) =>
       Box({
         key: 'note-' + k + '-' + id,
         flexDirection: 'column',
-        marginTop: 1,
         children: [
           Text({ dimColor: true, children: [(n.by === 'human' ? 'You' : 'Claude') + ' · ' + age(now, n.at)] }),
           Text({ wrap: 'wrap', children: [n.text] }),
         ],
       })
 
-    // Acting: the picked item opens into a card outlined in the accent: title, where it came
-    // from, details, the latest notes, then the actions.
+    // Acting: the picked item opens into a card outlined in the accent. Inside, by
+    // weight: the title bold, the same meta line as a row, details, the latest notes
+    // (older ones one press away), the composer when open, then the actions. The kind
+    // is not repeated: the card sits under its group heading.
     const selectedCard = (i: Item, mark: string, color?: string) => {
       const noting = notingId === i.id && canInput
-      const kindWord = i.kind === 'deferred' ? 'parked' : i.kind
-      const metaLine = [kindWord, ...(i.status === 'in_progress' ? ['in progress'] : []), projectOf(i), age(now, i.createdAt)].join(' · ')
-      const sessionLine = 'Session ' + sessionLabel(i) + (i.sessionName ? ' · ' + i.sessionId.split('-')[0] : '')
-      // Long threads show their latest three; the rest is one press away.
       const showAll = allNotesId === i.id
       const hidden = showAll ? 0 : Math.max(0, i.notes.length - 3)
       return Box({
@@ -755,6 +729,7 @@ export function register(on) {
           Box({
             flexDirection: 'row',
             columnGap: 1,
+            alignItems: 'flex-start',
             children: [
               markOf(i, mark, color),
               Box({
@@ -763,38 +738,31 @@ export function register(on) {
                 flexShrink: 1,
                 children: [
                   Text({ bold: true, wrap: 'wrap', children: [i.title] }),
-                  Text({ dimColor: true, wrap: 'wrap', children: [metaLine] }),
-                  Text({ dimColor: true, wrap: 'wrap', children: [sessionLine] }),
+                  metaLine(i),
                 ],
               }),
               Button({ key: 'title-' + i.id, plain: true, dimColor: true, label: '✕', onPress: () => select(null) }),
             ],
           }),
           ...(i.body ? [Box({ marginTop: 1, children: [Text({ wrap: 'wrap', children: [i.body] })] })] : []),
-          ...(i.notes.length || noting
+          ...(i.notes.length
             ? [Box({
                 flexDirection: 'column',
                 marginTop: 1,
                 children: [
-                  Text({ dimColor: true, children: ['Notes' + (i.notes.length ? ' · ' + i.notes.length : '')] }),
-                  ...(hidden
-                    ? [Button({ key: 'notes-more-' + i.id, plain: true, dimColor: true, label: 'Show ' + hidden + ' earlier',
-                        onPress: () => { allNotesId = i.id; redraw() } })]
-                    : []),
+                  hidden
+                    ? Button({ key: 'notes-more-' + i.id, plain: true, dimColor: true, label: 'Show ' + hidden + ' earlier',
+                        onPress: () => { allNotesId = i.id; redraw() } })
+                    : Text({ dimColor: true, children: ['Notes'] }),
                   ...i.notes.slice(hidden).map((n, k) => noteView(n, k + hidden, i.id)),
-                  ...(noting
-                    ? [Box({
-                        flexDirection: 'column',
-                        marginTop: 1,
-                        children: [
-                          Input({ key: 'note-input-' + i.id, value: '', placeholder: 'Write a note, then press Enter', submitLabel: 'add', autoFocus: true,
-                            onSubmit: async (v: string) => { notingId = null; await addNote($, i.id, v); redraw() } }),
-                          Button({ key: 'note-cancel-' + i.id, plain: true, dimColor: true, label: 'Cancel', onPress: () => { notingId = null; redraw() } }),
-                        ],
-                      })]
-                    : []),
                 ],
               })]
+            : []),
+          ...(noting
+            ? [Box({ marginTop: 1, children: [
+                Input({ key: 'note-input-' + i.id, value: '', placeholder: 'Note…', submitLabel: 'add', autoFocus: true,
+                  onSubmit: async (v: string) => { notingId = null; await addNote($, i.id, v); redraw() } }),
+              ] })]
             : []),
           Box({ flexDirection: 'row', columnGap: 1, flexWrap: 'wrap', marginTop: 1, children: actionsFor(i) }),
         ],
@@ -804,34 +772,23 @@ export function register(on) {
     const itemView = (i: Item, mark: string, color: string | undefined, last: boolean) =>
       expandedId === i.id ? selectedCard(i, mark, color) : compactRow(i, mark, color, last)
 
+    // Group headings are secondary: dim, no count (the rows under them are the count).
     const body = rows.length === 0
       ? [Text({ dimColor: true, wrap: 'wrap', children: [
           tab === 'done'
-            ? 'Closed items show here.'
-            : 'Claude adds work it defers or proposes here. Add your own with /todo add <text>.',
+            ? 'Nothing closed yet.'
+            : 'Nothing open. Claude adds what it parks or proposes; add your own with /todo add <text>.',
         ] })]
       : tab === 'done'
         ? rows.map((i, k) => itemView(i, i.status === 'dropped' ? '✕' : '✓', undefined, k === rows.length - 1))
         : groupItems(rows).flatMap((g, gi) => [
-            Box({
-              flexDirection: 'row',
-              columnGap: 1,
-              marginTop: gi === 0 ? 0 : 1,
-              children: [Text({ bold: true, children: [g.label] }), Text({ dimColor: true, children: [String(g.items.length)] })],
-            }),
+            Box({ ...(gi === 0 ? {} : { marginTop: 1 }), children: [Text({ dimColor: true, children: [g.label] })] }),
             ...g.items.map((i, k) => itemView(i, g.mark, g.color, k === g.items.length - 1)),
           ])
 
-    const hint = tab === 'done' ? 'Select an item to reopen or delete it'
-      : 'Select an item for its card · keys there: s start · d done · x drop · n note'
     return Box({
       flexDirection: 'column',
-      children: [
-        scopeRow,
-        tabRow,
-        ...body,
-        ...(expandedId === null && rows.length ? [Text({ dimColor: true, wrap: 'wrap', children: [hint] })] : []),
-      ],
+      children: [scopeRow, tabRow, ...body],
     })
     } catch (err: any) {
       // A failed draw shows its reason instead of a blank pane.

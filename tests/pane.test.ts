@@ -93,9 +93,9 @@ test('the selected item opens into an outlined card with full title and notes', 
   await $.tool.call({ tool: 'mcp__todo-ledger__park_item', title: 'a long title that the list row would cut off', kind: 'proposal', body: 'why it matters' })
   const id = JSON.parse([...disk.values()][0]).id
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  // List rows have no outline (a dim line under each); the open card is outlined in the accent.
+  // List rows have no outline and no rule under them; the open card is outlined in the accent.
   expect((await ui.find({ key: 'row-' + id })).props.borderStyle).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: /^─+$/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /^[─┈]+$/ })).toBeUndefined()
   await ui.press({ key: 'title-' + id })
   expect((await ui.find({ key: 'row-' + id })).props.borderColor).toBe('suggestion')
   expect(await ui.find({ type: 'Text', text: 'a long title that the list row would cut off' })).toBeDefined()
@@ -165,4 +165,51 @@ test('pane on mobile draws items without Input or Select', async ($, on) => {
   const ui = await $.ui.mount({ ...PANE, surface: 'mobile' })
   expect(await ui.find({ type: 'Button', text: 'agent thing' })).toBeDefined()
   expect(await ui.find({ type: 'Input' })).toBeUndefined()
+})
+
+test('rows are set apart by a blank line, none after the last of a group; no rules, no "new" tag', async ($, on) => {
+  const { disk } = setup(on)
+  await start($)
+  await $.tool.call({ tool: 'mcp__todo-ledger__park_item', title: 'first', kind: 'todo' })
+  await $.tool.call({ tool: 'mcp__todo-ledger__park_item', title: 'second', kind: 'todo' })
+  await $.tool.call({ tool: 'mcp__todo-ledger__park_item', title: 'parked one', kind: 'deferred' })
+  const ids = Object.fromEntries([...disk.values()].map((t) => JSON.parse(t)).map((i) => [i.title, i.id]))
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  // Of the two To do rows, the upper one has a blank under it and the group's last has none.
+  const gaps = [(await ui.find({ key: 'row-' + ids.first })).props.marginBottom, (await ui.find({ key: 'row-' + ids.second })).props.marginBottom]
+  expect(gaps.sort()).toEqual([1, undefined])
+  expect((await ui.find({ key: 'row-' + ids['parked one'] })).props.marginBottom).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /^[─┈]+$/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: 'new' })).toBeUndefined()
+})
+
+test('the scope row carries no open count and the pane no hint line', async ($, on) => {
+  setup(on)
+  await start($)
+  await $.tool.call({ tool: 'mcp__todo-ledger__park_item', title: 'a', kind: 'todo' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /\d+ open/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /Select an item/ })).toBeUndefined()
+  expect(await ui.find({ key: 'refresh' })).toBeDefined()
+})
+
+test('group headings are dim and carry no count', async ($, on) => {
+  setup(on)
+  await start($)
+  await $.tool.call({ tool: 'mcp__todo-ledger__park_item', title: 'a', kind: 'todo' })
+  await $.tool.call({ tool: 'mcp__todo-ledger__park_item', title: 'b', kind: 'todo' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const heading = await ui.find({ type: 'Text', text: 'To do' })
+  expect(heading.props.dimColor).toBe(true)
+  expect(heading.props.bold).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: '2' })).toBeUndefined()
+})
+
+test('the pane asks for 72 columns', async ($, on) => {
+  const { calls } = setup(on)
+  await start($)
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await ui.press({ key: 'ledger-toggle' })
+  expect(calls.opens).toEqual(['todo-ledger'])
+  expect(calls.openArgs[0].columns).toBe(72)
 })

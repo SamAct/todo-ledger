@@ -40,7 +40,7 @@ test('list rows wrap long titles to two lines and show project, session and age'
   expect(await ui.find({ type: 'Text', text: LONG })).toBeDefined()
 })
 
-test('the open card shows the full title, session line, details and a notes thread', async ($, on) => {
+test('the open card shows the full title, one meta line, details and a notes thread', async ($, on) => {
   const { disk } = setup(on, { sessionTitle: 'GeneralQues' })
   await start($)
   await $.tool.call({ tool: 'mcp__todo-ledger__park_item', title: LONG, kind: 'proposal', body: 'some details' })
@@ -49,14 +49,17 @@ test('the open card shows the full title, session line, details and a notes thre
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   await ui.press({ key: 'title-' + id })
   expect(await ui.find({ type: 'Text', text: LONG })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: 'Session GeneralQues · sess' })).toBeDefined()
+  // One meta line, the same as a row's: session and age; no kind word, no raw session id.
+  expect(await ui.find({ type: 'Text', text: 'GeneralQues' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^Session / })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /proposal/ })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: 'some details' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: 'Notes · 1' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'Notes' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'Claude · now' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'agent thought' })).toBeDefined()
 })
 
-test('Add note opens a composer that can be cancelled or submitted', async ($, on) => {
+test('Note opens a composer; the Note button becomes Cancel until it closes', async ($, on) => {
   const { disk } = setup(on)
   await start($)
   await $.tool.call({ tool: 'mcp__todo-ledger__park_item', title: 'noteworthy', kind: 'todo' })
@@ -65,8 +68,12 @@ test('Add note opens a composer that can be cancelled or submitted', async ($, o
   await ui.press({ key: 'title-' + id })
   await ui.press({ key: 'note-' + id })
   expect(await ui.find({ key: 'note-' + id })).toBeUndefined()
+  expect(await ui.find({ key: 'note-cancel-' + id })).toBeDefined()
+  // No "Notes" heading over an empty thread: the field alone is enough.
+  expect(await ui.find({ type: 'Text', text: 'Notes' })).toBeUndefined()
   await ui.press({ key: 'note-cancel-' + id })
   expect(await ui.find({ key: 'note-input-' + id })).toBeUndefined()
+  expect(await ui.find({ key: 'note-' + id })).toBeDefined()
   await ui.press({ key: 'note-' + id })
   await ui.input({ key: 'note-input-' + id, text: 'my view' })
   expect(JSON.parse([...disk.values()][0]).notes.at(-1)).toMatchObject({ by: 'human', text: 'my view' })
@@ -105,4 +112,31 @@ test('list_items lines carry status and session for the agent', async ($, on) =>
   await $.tool.call({ tool: 'mcp__todo-ledger__park_item', title: 'listed', kind: 'todo' })
   const out = await $.tool.call({ tool: 'mcp__todo-ledger__list_items' })
   expect(out.result).toContain('(todo, agent, open) listed  · session GeneralQues')
+})
+
+test('a long notes thread shows its latest three behind a "Show N earlier" link, no count heading', async ($, on) => {
+  const { disk } = setup(on)
+  await start($)
+  await $.tool.call({ tool: 'mcp__todo-ledger__park_item', title: 'chatty', kind: 'discussion' })
+  const id = JSON.parse([...disk.values()][0]).id
+  for (const n of ['one', 'two', 'three', 'four', 'five']) await $.tool.call({ tool: 'mcp__todo-ledger__update_item', id, note: n })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'title-' + id })
+  expect((await ui.find({ key: 'notes-more-' + id })).props.label).toBe('Show 2 earlier')
+  expect(await ui.find({ type: 'Text', text: 'Notes' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: 'one' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: 'five' })).toBeDefined()
+  await ui.press({ key: 'notes-more-' + id })
+  expect(await ui.find({ type: 'Text', text: 'one' })).toBeDefined()
+  expect(await ui.find({ key: 'notes-more-' + id })).toBeUndefined()
+})
+
+test('row meta names the project only when the list spans projects', async ($, on) => {
+  setup(on, { files: { 'C:\\Users\\t\\.claude\\todo-ledger\\items\\h.json': JSON.stringify({ id: 'h', title: 'here', body: '', kind: 'todo', origin: 'agent', status: 'open', project: 'D:\\Projects\\Demo', sessionId: 'abc-1', source: 'tool', createdAt: '2026-10-03T11:00:00.000Z', updatedAt: '2026-10-03T11:00:00.000Z', notes: [] }) } })
+  await start($)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: 'Demo' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: 'abc' })).toBeDefined()
+  await ui.press({ key: 'scope' })
+  expect(await ui.find({ type: 'Text', text: 'Demo' })).toBeDefined()
 })

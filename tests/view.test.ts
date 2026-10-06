@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import { makeItem } from '../src/item.ts'
-import { TABS, age, bandLabel, firstView, groupItems, itemsForTab, kindTag, tabOf } from '../src/view.ts'
+import { TABS, age, bandLabel, firstView, groupItems, itemsForTab, tabOf } from '../src/view.ts'
 
 const mk = (over: any) => ({ ...makeItem({ title: 't', kind: 'todo', origin: 'agent', source: 'tool', project: 'P', sessionId: 's', nowMs: 0, hex4: '0000' }), ...over })
 
@@ -26,13 +26,6 @@ test('groupItems orders by what the item needs and drops empty groups', async ()
   expect(groupItems([])).toEqual([])
 })
 
-test('kindTag marks every kind except plain todo', async () => {
-  expect(kindTag('todo')).toBe('')
-  expect(kindTag('deferred')).toBe('[parked] ')
-  expect(kindTag('proposal')).toBe('[proposal] ')
-  expect(kindTag('discussion')).toBe('💬 ')
-})
-
 test('itemsForTab filters project, sorts newest first, caps', async () => {
   const items = Array.from({ length: 120 }, (_, n) => mk({ id: 'i' + n, createdAt: new Date(n * 1000).toISOString() }))
   const shown = itemsForTab([...items, mk({ id: 'other', project: 'Q' })], 'agent', 'p')
@@ -41,13 +34,13 @@ test('itemsForTab filters project, sorts newest first, caps', async () => {
   expect(itemsForTab(items, 'agent', null).length).toBe(100)
 })
 
-test('bandLabel counts open and new agent items; always drawn', async () => {
-  expect(bandLabel([], null)).toBe("☰ ToDo's")
-  const items = [mk({ createdAt: '2026-10-03T10:00:00.000Z' }), mk({ origin: 'human', createdAt: '2026-10-03T11:00:00.000Z' }), mk({ status: 'done' })]
-  expect(bandLabel(items, '2026-10-03T09:00:00.000Z')).toBe("☰ ToDo's 2 · 1 new")
-  expect(bandLabel(items, '2026-10-03T12:00:00.000Z')).toBe("☰ ToDo's 2")
+test('bandLabel counts open items in the project; always drawn; no "new" count', async () => {
+  expect(bandLabel([])).toBe("☰ ToDo's")
+  const items = [mk({}), mk({ origin: 'human' }), mk({ status: 'done' })]
+  expect(bandLabel(items)).toBe("☰ ToDo's 2")
+  expect(bandLabel(items, 'p')).toBe("☰ ToDo's 2")
   // Scoped to the project the pane opens on.
-  expect(bandLabel(items, null, 'D:/elsewhere')).toBe("☰ ToDo's")
+  expect(bandLabel(items, 'D:/elsewhere')).toBe("☰ ToDo's")
 })
 
 test('firstView opens a tab with items and falls back to all projects', async () => {

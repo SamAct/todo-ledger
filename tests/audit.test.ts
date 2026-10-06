@@ -102,13 +102,14 @@ test('the pane opens on the Human tab when Agent is empty, and marks started ite
   expect(await ui.find({ type: 'Text', text: '▶' })).toBeDefined()
 })
 
-test('agent items added since the last visit carry a new mark', async ($, on) => {
-  setup(on)
+test('rows carry no "new" mark and the pane keeps no last-visit time', async ($, on) => {
+  const { store } = setup(on)
   await start($)
   await $.tool.call({ tool: 'mcp__todo-ledger__park_item', title: 'fresh one', kind: 'todo' })
   await $.command.run({ command: 'todos', args: '' })
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect(await ui.find({ type: 'Text', text: 'new' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'new' })).toBeUndefined()
+  expect(store.has('lastSeenAt')).toBe(false)
 })
 
 test('Drop keeps the item: it says so and it shows in Done marked ✕', async ($, on) => {
@@ -135,7 +136,7 @@ test('Send now says it is sending, or queued while a reply runs', async ($, on) 
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   await ui.press({ key: 'title-' + id })
   await ui.press({ key: 'start-' + id })
-  await ui.select({ key: 'start-choice-' + id, value: 'send' })
+  await ui.press({ key: 'start-send-' + id })
   expect(calls.toasts).toContain('Queued: starts when the current reply finishes')
   expect(calls.submits.length).toBe(1)
 })

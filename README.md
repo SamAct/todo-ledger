@@ -14,11 +14,11 @@ Start a new session; `/plugin` shows `1 mod active · todo-ledger`.
 
 ## Use
 
-- Button above the prompt: `☰ Todos  N open · M new` — press to toggle the pane.
+- Footer button `☰ ToDo's N` (this project's open items) toggles the pane: scope row, tabs Agent / Human / Done, items grouped by what they need, a card per selected item.
 - `/todos` toggle pane · `/todos list [all]` print open items
 - `/todo add [-d|-p|-n] <text>` add (deferred / proposal / discussion) · `/todo done <id>`
 - Claude records items itself with `park_item`; TodoWrite lists are mirrored; a Haiku scan after long replies catches deferrals it missed.
-- Start: Send now · Draft into prompt · New terminal session (CLI) / Copy prompt (desktop).
+- Start, one button each: Send now · Draft in prompt · New terminal (CLI) / Copy prompt (desktop).
 
 ## Data
 

@@ -2,14 +2,18 @@ import type { Item } from './item.ts'
 
 export type StartChoice = 'send' | 'draft' | 'terminal' | 'copy'
 
-export function startOptions(surface: 'terminal' | 'desktop'): { value: StartChoice; label: string }[] {
-  const common: { value: StartChoice; label: string }[] = [
-    { value: 'send', label: 'Send now' },
-    { value: 'draft', label: 'Draft into prompt' },
+export interface StartOption { value: StartChoice; label: string; hotkey: string }
+
+// The ways to start an item, drawn as one button each (one press, no picker).
+// The first is the main one. Terminals can open a new window; the desktop copies instead.
+export function startOptions(surface: 'terminal' | 'desktop'): StartOption[] {
+  const common: StartOption[] = [
+    { value: 'send', label: 'Send now', hotkey: 's' },
+    { value: 'draft', label: 'Draft in prompt', hotkey: 'd' },
   ]
   return surface === 'terminal'
-    ? [...common, { value: 'terminal', label: 'New terminal session' }]
-    : [...common, { value: 'copy', label: 'Copy prompt' }]
+    ? [...common, { value: 'terminal', label: 'New terminal', hotkey: 't' }]
+    : [...common, { value: 'copy', label: 'Copy prompt', hotkey: 'c' }]
 }
 
 export function startPrompt(item: Item, cwd: string): string {

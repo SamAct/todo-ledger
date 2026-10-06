@@ -28,21 +28,6 @@ export function groupItems(items: Item[]): { kind: Kind; label: string; mark: st
   return GROUPS.map((g) => ({ ...g, items: items.filter((i) => i.kind === g.kind) })).filter((g) => g.items.length > 0)
 }
 
-// Pane tag per kind, drawn bold before the title; a plain todo has none.
-export const KIND_TAGS: Record<Kind, { label: string; color?: string } | null> = {
-  todo: null,
-  deferred: { label: 'PARKED', color: 'warning' },
-  proposal: { label: 'PROPOSAL', color: 'suggestion' },
-  discussion: { label: '💬' },
-}
-
-export function kindTag(kind: Kind): string {
-  if (kind === 'deferred') return '[parked] '
-  if (kind === 'proposal') return '[proposal] '
-  if (kind === 'discussion') return '💬 '
-  return ''
-}
-
 export function itemsForTab(items: Item[], tab: Tab, project: string | null): Item[] {
   const p = project?.toLowerCase() ?? null
   const sortKey = (i: Item) => (tab === 'done' ? i.updatedAt : i.createdAt)
@@ -57,16 +42,10 @@ const inProject = (i: Item, project: string | null) => project === null || i.pro
 
 // The footer button. It counts what the pane first shows (this project's open
 // items) and is always drawn, so the pane (Done tab included) stays reachable.
-export function bandLabel(items: Item[], lastSeenAt: string | null, project: string | null = null): string {
+// Compact: it shares the footer row with the mode labels.
+export function bandLabel(items: Item[], project: string | null = null): string {
   const open = items.filter((i) => isOpen(i) && inProject(i, project))
-  const fresh = open.filter((i) => isNew(i, lastSeenAt))
-  // Compact: it shares the footer row with the mode labels.
-  return "☰ ToDo's" + (open.length ? ' ' + open.length : '') + (fresh.length ? ' · ' + fresh.length + ' new' : '')
-}
-
-// An agent item added since the person last opened the pane.
-export function isNew(item: Item, lastSeenAt: string | null): boolean {
-  return isOpen(item) && item.origin === 'agent' && (lastSeenAt === null || item.createdAt > lastSeenAt)
+  return "☰ ToDo's" + (open.length ? ' ' + open.length : '')
 }
 
 // Where the pane opens: this project unless it has nothing open while others do,

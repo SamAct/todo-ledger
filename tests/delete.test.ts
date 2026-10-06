@@ -68,3 +68,15 @@ test("agents' update_item cannot delete", async ($, on) => {
   await start($)
   expect(calls.toolDescs.update_item).not.toMatch(/delete forever|permanent/i)
 })
+
+test('Done rows show how long ago the item closed, not when it was created', async ($, on) => {
+  setup(on, { files: { [DIR + '\\c1.json']: JSON.stringify({
+    id: 'c1', title: 'closed', body: '', kind: 'todo', origin: 'human', status: 'done', project: 'D:\\Projects\\Demo', sessionId: 's',
+    source: 'manual', createdAt: '2026-09-01T00:00:00.000Z', updatedAt: '2026-10-03T09:00:00.000Z', notes: [] }) } })
+  await start($)
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'tab-done' })
+  // The clock is 2026-10-03 12:00: closed 3h ago, created 32d ago.
+  expect(await ui.find({ type: 'Text', text: '3h' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '32d' })).toBeUndefined()
+})
