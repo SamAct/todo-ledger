@@ -4,7 +4,7 @@ import { fallbackArgv, startOptions, startPrompt, terminalArgv, terminalTask } f
 import { HOME, setup, start } from './fakes.ts'
 
 const PANE = { plugin: 'todo-ledger', component: 'Pane', requestId: 'todo-ledger', viewport: { columns: 120, rows: 40 },
-  props: { title: 'Todos', isFocused: true, bodyColumns: 100, placement: 'inline', scroll: { offset: 0, bodyRows: 20 }, view: {} } } as const
+  props: { title: "ToDo's", isFocused: true, bodyColumns: 100, placement: 'inline', scroll: { offset: 0, bodyRows: 20 }, view: {} } } as const
 
 test('options differ by surface', async () => {
   expect(startOptions('terminal').map((o) => o.value)).toEqual(['send', 'draft', 'terminal'])

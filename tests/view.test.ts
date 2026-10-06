@@ -42,12 +42,12 @@ test('itemsForTab filters project, sorts newest first, caps', async () => {
 })
 
 test('bandLabel counts open and new agent items; always drawn', async () => {
-  expect(bandLabel([], null)).toBe('☰ Todos')
+  expect(bandLabel([], null)).toBe("☰ ToDo's")
   const items = [mk({ createdAt: '2026-10-03T10:00:00.000Z' }), mk({ origin: 'human', createdAt: '2026-10-03T11:00:00.000Z' }), mk({ status: 'done' })]
-  expect(bandLabel(items, '2026-10-03T09:00:00.000Z')).toBe('☰ Todos 2 · 1 new')
-  expect(bandLabel(items, '2026-10-03T12:00:00.000Z')).toBe('☰ Todos 2')
+  expect(bandLabel(items, '2026-10-03T09:00:00.000Z')).toBe("☰ ToDo's 2 · 1 new")
+  expect(bandLabel(items, '2026-10-03T12:00:00.000Z')).toBe("☰ ToDo's 2")
   // Scoped to the project the pane opens on.
-  expect(bandLabel(items, null, 'D:/elsewhere')).toBe('☰ Todos')
+  expect(bandLabel(items, null, 'D:/elsewhere')).toBe("☰ ToDo's")
 })
 
 test('firstView opens a tab with items and falls back to all projects', async () => {

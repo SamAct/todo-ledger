@@ -6,7 +6,7 @@ import { setup, start } from './fakes.ts'
 const LONG = 'We fixed the bug. '.repeat(30) + 'I deferred the GGUF check for CLM to later.'
 const DONE = { durationMs: 1, isAborted: false, reason: 'answer' as const }
 const PANE = { plugin: 'todo-ledger', component: 'Pane', requestId: 'todo-ledger', viewport: { columns: 120, rows: 40 },
-  props: { title: 'Todos', isFocused: true, bodyColumns: 100, placement: 'inline', scroll: { offset: 0, bodyRows: 20 }, view: {} } } as const
+  props: { title: "ToDo's", isFocused: true, bodyColumns: 100, placement: 'inline', scroll: { offset: 0, bodyRows: 20 }, view: {} } } as const
 const items = (disk: Map<string, string>) => [...disk.values()].map((t) => JSON.parse(t))
 
 async function scanTurn($: any, clock: any, id: string) {

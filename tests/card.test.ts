@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 import { setup, start } from './fakes.ts'
 
 const PANE = { plugin: 'todo-ledger', component: 'Pane', requestId: 'todo-ledger', viewport: { columns: 120, rows: 40 },
-  props: { title: 'Todos', isFocused: true, bodyColumns: 40, placement: 'dock', scroll: { offset: 0, bodyRows: 30 }, view: {} } } as const
+  props: { title: "ToDo's", isFocused: true, bodyColumns: 40, placement: 'dock', scroll: { offset: 0, bodyRows: 30 }, view: {} } } as const
 
 const LONG = 'Write Claude Pop lyric-video design doc from the code because no recorded doc exists anywhere'
 

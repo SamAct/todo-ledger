@@ -4,7 +4,7 @@ import { setup, start } from './fakes.ts'
 const BAND = { plugin: 'todo-ledger', component: 'SessionMode', requestId: 'footer', viewport: { columns: 120, rows: 40 },
   props: { modes: ['Bypass permissions'] } } as const
 const PANE = { plugin: 'todo-ledger', component: 'Pane', requestId: 'todo-ledger', viewport: { columns: 120, rows: 40 },
-  props: { title: 'Todos', isFocused: true, bodyColumns: 100, placement: 'inline', scroll: { offset: 0, bodyRows: 20 }, view: {} } } as const
+  props: { title: "ToDo's", isFocused: true, bodyColumns: 100, placement: 'inline', scroll: { offset: 0, bodyRows: 20 }, view: {} } } as const
 
 // Item titles are drawn as Button labels, so title lookups use type 'Button' (api-notes item 15).
 
@@ -12,7 +12,7 @@ test('empty ledger: band keeps engine content and still offers the pane', async 
   setup(on)
   await start($)
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  expect((await ui.find({ key: 'ledger-toggle' })).props.label).toBe('☰ Todos')
+  expect((await ui.find({ key: 'ledger-toggle' })).props.label).toBe("☰ ToDo's")
   expect(await ui.find({ type: 'Text', text: 'engine' })).toBeDefined()
 })
 
@@ -37,7 +37,7 @@ test('button sits on the same footer row as the engine mode labels', async ($, o
   await $.command.run({ command: 'todo', args: 'add a' })
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   const button = await ui.find({ key: 'ledger-toggle' })
-  expect(button.props.label).toBe('☰ Todos 1')
+  expect(button.props.label).toBe("☰ ToDo's 1")
   const row = await ui.find({ key: 'ledger-footer' })
   expect(row.props.flexDirection).toBe('row')
   expect(await ui.find({ type: 'Text', text: 'engine' })).toBeDefined()

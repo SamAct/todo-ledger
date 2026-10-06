@@ -61,7 +61,7 @@ export function bandLabel(items: Item[], lastSeenAt: string | null, project: str
   const open = items.filter((i) => isOpen(i) && inProject(i, project))
   const fresh = open.filter((i) => isNew(i, lastSeenAt))
   // Compact: it shares the footer row with the mode labels.
-  return '☰ Todos' + (open.length ? ' ' + open.length : '') + (fresh.length ? ' · ' + fresh.length + ' new' : '')
+  return "☰ ToDo's" + (open.length ? ' ' + open.length : '') + (fresh.length ? ' · ' + fresh.length + ' new' : '')
 }
 
 // An agent item added since the person last opened the pane.

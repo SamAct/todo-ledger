@@ -302,19 +302,19 @@ async function togglePane($: any): Promise<void> {
   prevSeenAt = lastSeenAt
   lastSeenAt = new Date(await $.clock.now()).toISOString()
   try { await $.store.set('lastSeenAt', lastSeenAt) } catch { /* only affects the "new" count */ }
-  const r = await $.ui.open({ id: PANE, title: 'Todos', focus: true, closeOnEscape: true, columns: PANE_COLUMNS })
+  const r = await $.ui.open({ id: PANE, title: "ToDo's", focus: true, closeOnEscape: true, columns: PANE_COLUMNS })
   // Only a placed pane counts as open; otherwise the next press must try to open it again.
   paneOpen = r?.isPlaced === true
-  if (!paneOpen) $.ui.toast('Could not open the todo pane: ' + (r?.reason ?? 'unknown reason'))
+  if (!paneOpen) $.ui.toast("Could not open the ToDo's pane: " + (r?.reason ?? 'unknown reason'))
   $.ui.invalidate('ui.render')
 }
 
 async function safeToggle($: any): Promise<void> {
-  try { await togglePane($) } catch (err: any) { $.ui.toast('Todo pane failed: ' + err.message) }
+  try { await togglePane($) } catch (err: any) { $.ui.toast("ToDo's pane failed: " + err.message) }
 }
 
 async function markStatus($: any, id: string, status: Status): Promise<void> {
-  try { await setStatus($, id, status) } catch (err: any) { $.ui.toast('Todo not saved: ' + err.message) }
+  try { await setStatus($, id, status) } catch (err: any) { $.ui.toast('ToDo not saved: ' + err.message) }
 }
 
 async function addNote($: any, id: string, text: string): Promise<void> {
@@ -426,7 +426,7 @@ async function runTodo($: any, args: string): Promise<{ text: string }> {
     const r = await capture($, { title: cmd.text, kind: cmd.kind, origin: 'human', source: 'manual' })
     return { text: (r.isNew ? 'Added ' : 'Already listed, noted: ') + r.item.title }
   } catch (err: any) {
-    $.ui.toast('Todo not saved: ' + err.message)
+    $.ui.toast('ToDo not saved: ' + err.message)
     return { text: 'Not saved: ' + err.message }
   }
 }
@@ -523,7 +523,7 @@ export function register(on) {
         required: ['id'],
       },
     })
-    await registerCommand($, { name: 'todos', description: 'Toggle the todo ledger pane', argumentHint: '[list [all] | refresh]', immediate: true }, 'ledger')
+    await registerCommand($, { name: 'todos', description: "Toggle the ToDo's pane", argumentHint: '[list [all] | refresh]', immediate: true }, 'ledger')
     await registerCommand($, { name: 'todo', description: 'Add or close a ledger item', argumentHint: 'add [-d|-p|-n] <text> | done <id>' }, 'ledger-add')
     // Warm the cache; a failure here must not block the session.
     // The next loadAll (any command, tool or render) retries.
@@ -579,7 +579,7 @@ export function register(on) {
           const stamp = new Date(await $.clock.now()).toISOString()
           await saveItem($, { ...i, kind: kindChange, updatedAt: stamp, notes: [...i.notes, { by: 'human' as Origin, text: 'approved', at: stamp }] })
         } else await setStatus($, i.id, status)
-      } catch (err: any) { $.ui.toast('Todo not saved: ' + err.message); return }
+      } catch (err: any) { $.ui.toast('ToDo not saved: ' + err.message); return }
       if (kindChange) { redraw(); return }
       // Closed items are kept: say where they went.
       $.ui.toast((status === 'dropped' ? 'Dropped, moved to Done: ' : 'Done: ') + clip(i.title, 40))
@@ -865,7 +865,7 @@ export function register(on) {
       parkedThisTurn = true
       return { result: (r.isNew ? 'Parked ' : 'Already in ledger, added note to ') + r.item.id + ': ' + r.item.title }
     } catch (err: any) {
-      $.ui.toast('Todo not saved: ' + err.message)
+      $.ui.toast('ToDo not saved: ' + err.message)
       return { result: 'Not saved: ' + err.message }
     }
   })
@@ -908,7 +908,7 @@ export function register(on) {
       const changed = ['status ' + final.status, ...Object.keys(edits), ...(note ? ['note added'] : [])]
       return { result: 'Item ' + final.id + ' updated: ' + changed.join(', ') }
     } catch (err: any) {
-      $.ui.toast('Todo not saved: ' + err.message)
+      $.ui.toast('ToDo not saved: ' + err.message)
       return { result: 'Not saved: ' + err.message }
     }
   })
