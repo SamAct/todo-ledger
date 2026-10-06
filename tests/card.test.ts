@@ -28,7 +28,7 @@ test('list rows wrap long titles to two lines and show project, session and age'
   await start($)
   await $.tool.call({ tool: 'mcp__todo-ledger__park_item', title: LONG, kind: 'proposal' })
   const id = JSON.parse([...disk.values()][0]).id
-  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   const first = (await ui.find({ key: 'title-' + id })).props.label
   const second = (await ui.find({ key: 'title2-' + id })).props.label
   expect(first.length <= 36 && second.length <= 36).toBe(true)

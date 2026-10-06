@@ -683,22 +683,25 @@ export function register(on) {
     // List titles stay on one line; the open card shows them whole.
     const cols = Math.max(12, (e.props.bodyColumns ?? 40) - 1)
     // Row chrome: mark and gap (2), a spare column.
-    const titleCols = Math.max(16, cols - 3)
+    // The desktop draws a proportional font, about 1.4 characters per cell,
+    // so titles wrap later there to use the pane's real width.
+    const wide = e.surface === 'desktop' ? 1.4 : 1
+    const titleCols = Math.max(16, Math.floor((cols - 3) * wide))
     const fresh = (i: Item) => tab !== 'done' && isNew(i, prevSeenAt)
     // A started item shows ▶ in place of its group mark.
     const markOf = (i: Item, mark: string, color?: string) =>
       i.status === 'in_progress' ? Text({ color: ACCENT, children: ['▶'] }) : Text({ color, dimColor: !color, children: [mark] })
 
-    // Scanning: entries separated by a thin dim line (no side borders). The title
-    // gets up to two lines; both open the card.
-    const compactRow = (i: Item, mark: string, color?: string) => {
+    // Scanning: entries split by a light dotted divider (none after a group's last
+    // entry, no side borders). The title gets up to two lines; both open the card.
+    const compactRow = (i: Item, mark: string, color: string | undefined, last: boolean) => {
       const open = () => select(i.id)
       const lines = wrapLines(i.title, titleCols - (fresh(i) ? 4 : 0), 2)
       return Box({
         key: 'row-' + i.id,
         flexDirection: 'column',
         children: [
-          Box({ flexDirection: 'row', columnGap: 1, children: [
+          Box({ flexDirection: 'row', columnGap: 1, alignItems: 'flex-start', children: [
             markOf(i, mark, color),
             Box({
               flexDirection: 'column',
@@ -714,7 +717,7 @@ export function register(on) {
               ],
             }),
           ] }),
-          Text({ dimColor: true, wrap: 'truncate-end', children: ['─'.repeat(cols)] }),
+          ...(last ? [] : [Text({ dimColor: true, wrap: 'truncate-end', children: ['┈'.repeat(Math.floor(cols * wide))] })]),
         ],
       })
     }
@@ -798,8 +801,8 @@ export function register(on) {
       })
     }
 
-    const itemView = (i: Item, mark: string, color?: string) =>
-      expandedId === i.id ? selectedCard(i, mark, color) : compactRow(i, mark, color)
+    const itemView = (i: Item, mark: string, color: string | undefined, last: boolean) =>
+      expandedId === i.id ? selectedCard(i, mark, color) : compactRow(i, mark, color, last)
 
     const body = rows.length === 0
       ? [Text({ dimColor: true, wrap: 'wrap', children: [
@@ -808,15 +811,15 @@ export function register(on) {
             : 'Claude adds work it defers or proposes here. Add your own with /todo add <text>.',
         ] })]
       : tab === 'done'
-        ? rows.map((i) => itemView(i, i.status === 'dropped' ? '✕' : '✓'))
-        : groupItems(rows).flatMap((g) => [
+        ? rows.map((i, k) => itemView(i, i.status === 'dropped' ? '✕' : '✓', undefined, k === rows.length - 1))
+        : groupItems(rows).flatMap((g, gi) => [
             Box({
               flexDirection: 'row',
               columnGap: 1,
-              marginBottom: 1,
+              marginTop: gi === 0 ? 0 : 1,
               children: [Text({ bold: true, children: [g.label] }), Text({ dimColor: true, children: [String(g.items.length)] })],
             }),
-            ...g.items.map((i) => itemView(i, g.mark, g.color)),
+            ...g.items.map((i, k) => itemView(i, g.mark, g.color, k === g.items.length - 1)),
           ])
 
     const hint = tab === 'done' ? 'Select an item to reopen or delete it'
