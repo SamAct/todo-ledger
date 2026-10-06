@@ -14,6 +14,8 @@ import type { Tab } from '../src/view.ts'
 let cache: Item[] = []
 const reportedBad = new Set<string>()
 let parkedThisTurn = false
+// True while the main loop is answering; a prompt sent then waits for the reply to end.
+let replying = false
 let lastUserText = ''
 let deletingId: string | null = null
 const STATUS_VALUES = ['open', 'in_progress', 'done', 'dropped']
@@ -30,9 +32,10 @@ let lastSeenAt: string | null = null
 let prevSeenAt: string | null = null
 let allNotesId: string | null = null
 let cwd = ''
-// Soft look: grey fills instead of lines. Theme keys, so both light and dark themes fit.
-const FILL = 'userMessageBackground'
-const FILL_HOVER = 'userMessageBackgroundHover'
+// One accent colour for what needs attention (the open card, marks, "new",
+// started items); everything else is hierarchy by weight, dimming and spacing.
+// A theme key, so light and dark themes both fit.
+const ACCENT = 'suggestion'
 const CLOSED_MEMORY_MS = 30 * 86_400_000
 let lastLoadAt = 0
 const REFRESH_MS = 5000
@@ -331,6 +334,9 @@ async function doStart($: any, item: Item, choice: StartChoice): Promise<void> {
   try {
     if (choice === 'send') {
       await saveItem($, { ...item, status: 'in_progress', updatedAt: new Date(await $.clock.now()).toISOString() })
+      // A plugin's prompt waits until Claude is idle, so say so at once instead of
+      // looking like nothing happened while a reply is still running.
+      $.ui.toast(replying ? 'Queued: starts when the current reply finishes' : 'Sending: ' + clip(item.title, 40))
       let dropped: string | null = null
       try {
         const r = await $.prompt.submit({ text, asUser: true })
@@ -571,23 +577,19 @@ export function register(on) {
         } else await setStatus($, i.id, status)
       } catch (err: any) { $.ui.toast('Todo not saved: ' + err.message); return }
       if (kindChange) { redraw(); return }
+      // Closed items are kept: say where they went.
+      $.ui.toast((status === 'dropped' ? 'Dropped, moved to Done: ' : 'Done: ') + clip(i.title, 40))
       select(expandedId === i.id ? (following?.id ?? null) : expandedId)
     }
-
-    // Soft chip: dim text on a grey fill.
-    const chip = (text: string, extra: Record<string, unknown> = {}) =>
-      Box({ backgroundColor: FILL, paddingX: 1, children: [Text({ dimColor: true, children: [text] })], ...extra })
 
     // Row 1: where the list comes from, kept apart from the tabs.
     const scopeRow = Box({
       flexDirection: 'row',
       justifyContent: 'space-between',
       children: [
-        Box({ backgroundColor: FILL, paddingX: 1, children: [
-          Button({ key: 'scope', plain: true, hotkey: 'p',
-            label: (allProjects ? 'All projects' : 'This project') + ' ▾',
-            onPress: () => { allProjects = !allProjects; select(null) } }),
-        ] }),
+        Button({ key: 'scope', plain: true, hotkey: 'p',
+          label: (allProjects ? 'All projects' : 'This project') + ' ▾',
+          onPress: () => { allProjects = !allProjects; select(null) } }),
         Box({
           flexDirection: 'row',
           columnGap: 2,
@@ -602,16 +604,14 @@ export function register(on) {
       ],
     })
 
-    // Row 2: who started it, as a soft segmented track; the chosen tab is bold.
+    // Row 2: who started it; the chosen tab at full strength, the others dim.
     const tabRow = Box({
       flexDirection: 'row',
       columnGap: 3,
-      backgroundColor: FILL,
-      paddingX: 1,
       marginY: 1,
       children: TABS.map((t) =>
         Button({ key: 'tab-' + t.id, plain: true, hotkey: t.hotkey, dimColor: tab !== t.id,
-          label: t.id === 'done' ? t.label : t.label + ' ' + count(t.id),
+          label: t.label + ' ' + count(t.id),
           onPress: () => { tab = t.id; select(null) } })),
     })
 
@@ -669,7 +669,7 @@ export function register(on) {
     const fresh = (i: Item) => tab !== 'done' && isNew(i, prevSeenAt)
     // A started item shows ▶ in place of its group mark.
     const markOf = (i: Item, mark: string, color?: string) =>
-      i.status === 'in_progress' ? Text({ color: 'suggestion', children: ['▶'] }) : Text({ color, children: [mark] })
+      i.status === 'in_progress' ? Text({ color: ACCENT, children: ['▶'] }) : Text({ color, dimColor: !color, children: [mark] })
 
     // Scanning: mark, title (a button that opens the card), dim meta line. A
     // pointer over the row lights it and shows quick ✓ / ✕ (no card needed).
@@ -679,7 +679,6 @@ export function register(on) {
         flexDirection: 'row',
         columnGap: 1,
         marginBottom: 1,
-        hover: { backgroundColor: FILL_HOVER },
         children: [
           markOf(i, mark, color),
           Box({
@@ -689,7 +688,7 @@ export function register(on) {
             children: [
               Box({ flexDirection: 'row', columnGap: 1, children: [
                 Button({ key: 'title-' + i.id, plain: true, label: clip(i.title, titleCols - (fresh(i) ? 4 : 0)), onPress: () => select(i.id) }),
-                ...(fresh(i) ? [Text({ color: 'suggestion', bold: true, children: ['new'] })] : []),
+                ...(fresh(i) ? [Text({ color: ACCENT, children: ['new'] })] : []),
               ] }),
               Text({ dimColor: true, wrap: 'truncate-end', children: [metaOf(i)] }),
             ],
@@ -720,7 +719,7 @@ export function register(on) {
         ],
       })
 
-    // Acting: the picked item opens into a soft filled card: title, where it came
+    // Acting: the picked item opens into a card outlined in the accent: title, where it came
     // from, details, the latest notes, then the actions.
     const selectedCard = (i: Item, mark: string, color?: string) => {
       const noting = notingId === i.id && canInput
@@ -733,9 +732,9 @@ export function register(on) {
       return Box({
         key: 'row-' + i.id,
         flexDirection: 'column',
-        backgroundColor: FILL,
+        borderStyle: 'round',
+        borderColor: ACCENT,
         paddingX: 1,
-        paddingY: 1,
         marginBottom: 1,
         children: [
           Box({
@@ -797,13 +796,13 @@ export function register(on) {
             : 'Claude adds work it defers or proposes here. Add your own with /todo add <text>.',
         ] })]
       : tab === 'done'
-        ? rows.map((i) => itemView(i, '✓'))
+        ? rows.map((i) => itemView(i, i.status === 'dropped' ? '✕' : '✓'))
         : groupItems(rows).flatMap((g) => [
             Box({
               flexDirection: 'row',
               columnGap: 1,
               marginBottom: 1,
-              children: [Text({ dimColor: true, children: [g.label] }), chip(String(g.items.length))],
+              children: [Text({ bold: true, children: [g.label] }), Text({ dimColor: true, children: [String(g.items.length)] })],
             }),
             ...g.items.map((i) => itemView(i, g.mark, g.color)),
           ])
@@ -823,6 +822,7 @@ export function register(on) {
 
   on('turn.start', async ($, e, next) => {
     parkedThisTurn = false
+    if (e.agentId === undefined) replying = true
     // The scan reads what the user said this turn to see which items they decided.
     if (e.agentId === undefined && typeof e.text === 'string') lastUserText = e.text
     // Picks up a /rename since the last turn, without holding the turn.
@@ -834,6 +834,7 @@ export function register(on) {
 
   on('turn.complete', async ($, e, next) => {
     const result = await next(e)
+    if (e.agentId === undefined) replying = false
     // Subagent turns and non-answer turns are not scanned.
     if (e.agentId === undefined && e.reason === 'answer' && shouldScan(e.answer, parkedThisTurn)) {
       const answer = e.answer

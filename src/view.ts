@@ -21,7 +21,7 @@ export const GROUPS: { kind: Kind; label: string; mark: string; color?: string }
   { kind: 'proposal', label: 'Needs decision', mark: '◆', color: 'suggestion' },
   { kind: 'todo', label: 'To do', mark: '•' },
   { kind: 'discussion', label: 'Discussion', mark: '◇' },
-  { kind: 'deferred', label: 'Parked', mark: '◇', color: 'warning' },
+  { kind: 'deferred', label: 'Parked', mark: '◇' },
 ]
 
 export function groupItems(items: Item[]): { kind: Kind; label: string; mark: string; color?: string; items: Item[] }[] {

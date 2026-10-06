@@ -110,3 +110,32 @@ test('agent items added since the last visit carry a new mark', async ($, on) =>
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(await ui.find({ type: 'Text', text: 'new' })).toBeDefined()
 })
+
+test('Drop keeps the item: it says so and it shows in Done marked ✕', async ($, on) => {
+  const { disk, calls } = setup(on)
+  await start($)
+  await $.tool.call({ tool: 'mcp__todo-ledger__park_item', title: 'unwanted', kind: 'todo' })
+  const id = items(disk)[0].id
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'title-' + id })
+  await ui.press({ key: 'drop-' + id })
+  expect(items(disk)[0].status).toBe('dropped')
+  expect(calls.toasts.some((t) => t.startsWith('Dropped, moved to Done'))).toBe(true)
+  await ui.press({ key: 'tab-done' })
+  expect((await ui.find({ key: 'tab-done' })).props.label).toBe('Done 1')
+  expect(await ui.find({ type: 'Text', text: '✕' })).toBeDefined()
+})
+
+test('Send now says it is sending, or queued while a reply runs', async ($, on) => {
+  const { disk, calls } = setup(on)
+  await start($)
+  await $.tool.call({ tool: 'mcp__todo-ledger__park_item', title: 'go', kind: 'todo' })
+  const id = items(disk)[0].id
+  await $.turn.start({ text: 'hi', turnId: 't9' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'title-' + id })
+  await ui.press({ key: 'start-' + id })
+  await ui.select({ key: 'start-choice-' + id, value: 'send' })
+  expect(calls.toasts).toContain('Queued: starts when the current reply finishes')
+  expect(calls.submits.length).toBe(1)
+})
