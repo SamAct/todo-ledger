@@ -681,41 +681,39 @@ export function register(on) {
     }
     // List titles stay on one line; the open card shows them whole.
     const cols = Math.max(12, (e.props.bodyColumns ?? 40) - 1)
-    // Row chrome: border and padding (4), mark and gap (2), a spare column.
-    const titleCols = Math.max(16, cols - 7)
+    // Row chrome: mark and gap (2), a spare column.
+    const titleCols = Math.max(16, cols - 3)
     const fresh = (i: Item) => tab !== 'done' && isNew(i, prevSeenAt)
     // A started item shows ▶ in place of its group mark.
     const markOf = (i: Item, mark: string, color?: string) =>
       i.status === 'in_progress' ? Text({ color: ACCENT, children: ['▶'] }) : Text({ color, dimColor: !color, children: [mark] })
 
-    // Scanning: each item in its own lightly outlined box, so the list reads as
-    // separate entries. The title gets up to two lines, and every line of the
-    // row is pressable, so a press anywhere on it opens the card.
+    // Scanning: entries separated by a thin dim line (no side borders). The title
+    // gets up to two lines; both open the card.
     const compactRow = (i: Item, mark: string, color?: string) => {
       const open = () => select(i.id)
       const lines = wrapLines(i.title, titleCols - (fresh(i) ? 4 : 0), 2)
       return Box({
         key: 'row-' + i.id,
-        flexDirection: 'row',
-        columnGap: 1,
-        borderStyle: 'round',
-        borderDimColor: true,
-        paddingX: 1,
+        flexDirection: 'column',
         children: [
-          markOf(i, mark, color),
-          Box({
-            flexDirection: 'column',
-            flexGrow: 1,
-            flexShrink: 1,
-            children: [
-              Box({ flexDirection: 'row', columnGap: 1, children: [
-                Button({ key: 'title-' + i.id, plain: true, label: lines[0] ?? '', onPress: open }),
-                ...(fresh(i) ? [Text({ color: ACCENT, children: ['new'] })] : []),
-              ] }),
-              ...(lines[1] ? [Button({ key: 'title2-' + i.id, plain: true, label: lines[1], onPress: open })] : []),
-              metaLine(i),
-            ],
-          }),
+          Box({ flexDirection: 'row', columnGap: 1, children: [
+            markOf(i, mark, color),
+            Box({
+              flexDirection: 'column',
+              flexGrow: 1,
+              flexShrink: 1,
+              children: [
+                Box({ flexDirection: 'row', columnGap: 1, children: [
+                  Button({ key: 'title-' + i.id, plain: true, label: lines[0] ?? '', onPress: open }),
+                  ...(fresh(i) ? [Text({ color: ACCENT, children: ['new'] })] : []),
+                ] }),
+                ...(lines[1] ? [Button({ key: 'title2-' + i.id, plain: true, label: lines[1], onPress: open })] : []),
+                metaLine(i),
+              ],
+            }),
+          ] }),
+          Text({ key: 'sep-' + i.id, dimColor: true, wrap: 'truncate-end', children: ['─'.repeat(cols)] }),
         ],
       })
     }

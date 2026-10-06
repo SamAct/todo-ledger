@@ -93,8 +93,9 @@ test('the selected item opens into an outlined card with full title and notes', 
   await $.tool.call({ tool: 'mcp__todo-ledger__park_item', title: 'a long title that the list row would cut off', kind: 'proposal', body: 'why it matters' })
   const id = JSON.parse([...disk.values()][0]).id
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  // List rows have a dim outline; the open card is outlined in the accent.
-  expect((await ui.find({ key: 'row-' + id })).props.borderDimColor).toBe(true)
+  // List rows have no outline (a dim line under each); the open card is outlined in the accent.
+  expect((await ui.find({ key: 'row-' + id })).props.borderStyle).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /^─+$/ })).toBeDefined()
   await ui.press({ key: 'title-' + id })
   expect((await ui.find({ key: 'row-' + id })).props.borderColor).toBe('suggestion')
   expect(await ui.find({ type: 'Text', text: 'a long title that the list row would cut off' })).toBeDefined()
