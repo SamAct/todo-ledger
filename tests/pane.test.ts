@@ -93,9 +93,10 @@ test('the selected item opens into an outlined card with full title and notes', 
   await $.tool.call({ tool: 'mcp__todo-ledger__park_item', title: 'a long title that the list row would cut off', kind: 'proposal', body: 'why it matters' })
   const id = JSON.parse([...disk.values()][0]).id
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  expect((await ui.find({ key: 'row-' + id })).props.borderStyle).toBeUndefined()
+  // List rows have a dim outline; the open card is outlined in the accent.
+  expect((await ui.find({ key: 'row-' + id })).props.borderDimColor).toBe(true)
   await ui.press({ key: 'title-' + id })
-  expect((await ui.find({ key: 'row-' + id })).props.borderStyle).toBe('round')
+  expect((await ui.find({ key: 'row-' + id })).props.borderColor).toBe('suggestion')
   expect(await ui.find({ type: 'Text', text: 'a long title that the list row would cut off' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'why it matters' })).toBeDefined()
 })
@@ -133,7 +134,7 @@ test('scope toggle switches between this project and all projects', async ($, on
   expect(await ui.find({ type: 'Button', text: 'elsewhere' })).toBeUndefined()
   await ui.press({ key: 'scope' })
   expect(await ui.find({ type: 'Button', text: 'elsewhere' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /Other/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'Other' })).toBeDefined()
 })
 
 test('empty tab explains how items arrive', async ($, on) => {

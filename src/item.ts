@@ -101,6 +101,23 @@ export function clip(s: string, max: number): string {
   return s.length <= max ? s : s.slice(0, Math.max(1, max - 1)) + '…'
 }
 
+// Wrap text at word boundaries into at most `lines` lines of `width`; the last
+// line ends in an ellipsis when text is left over.
+export function wrapLines(s: string, width: number, lines: number): string[] {
+  const w = Math.max(4, width)
+  const out: string[] = []
+  let rest = s.replace(/\s+/g, ' ').trim()
+  while (rest && out.length < lines) {
+    if (rest.length <= w) { out.push(rest); rest = ''; break }
+    if (out.length === lines - 1) { out.push(clip(rest, w)); rest = ''; break }
+    const cut = rest.lastIndexOf(' ', w)
+    const at = cut > w / 3 ? cut : w
+    out.push(rest.slice(0, at).trimEnd())
+    rest = rest.slice(at).trimStart()
+  }
+  return out
+}
+
 // How the pane names the session an item came from: its name, else the id's first block.
 export function sessionLabel(item: Item): string {
   return item.sessionName?.trim() || item.sessionId.split('-')[0]

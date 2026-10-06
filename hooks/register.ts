@@ -1,7 +1,7 @@
 import { formatItem, formatList, parseTodoCommand, parseTodosArgs } from '../src/commands.ts'
 import { SCAN_SYSTEM, buildScanPrompt, parseScanReply, parseScanUpdates, shouldScan } from '../src/scan.ts'
 import type { ScanUpdate } from '../src/scan.ts'
-import { KINDS, cleanTitle, clip, dedupeKey, isOpen, lastSessionTitle, makeItem, parseItem, randomHex4, sessionLabel, similarTitle } from '../src/item.ts'
+import { KINDS, cleanTitle, clip, dedupeKey, wrapLines, isOpen, lastSessionTitle, makeItem, parseItem, randomHex4, sessionLabel, similarTitle } from '../src/item.ts'
 import type { Item, Kind, Origin, Source, Status } from '../src/item.ts'
 import { fallbackArgv, startOptions, startPrompt, terminalArgv, terminalTask } from '../src/start.ts'
 import type { StartChoice } from '../src/start.ts'
@@ -21,6 +21,8 @@ let deletingId: string | null = null
 const STATUS_VALUES = ['open', 'in_progress', 'done', 'dropped']
 
 const PANE = 'todo-ledger'
+// The dock width asked for on open; a width the person dragged wins (the engine has no minimum).
+const PANE_COLUMNS = 50
 let paneOpen = false
 let tab: Tab = 'agent'
 let allProjects = false
@@ -36,6 +38,8 @@ let cwd = ''
 // started items); everything else is hierarchy by weight, dimming and spacing.
 // A theme key, so light and dark themes both fit.
 const ACCENT = 'suggestion'
+// Faint tints for a row's project, session and age.
+const META = { project: '#5b8fd9', session: '#a57fd6', age: '#4fa88a' }
 const CLOSED_MEMORY_MS = 30 * 86_400_000
 let lastLoadAt = 0
 const REFRESH_MS = 5000
@@ -298,7 +302,7 @@ async function togglePane($: any): Promise<void> {
   prevSeenAt = lastSeenAt
   lastSeenAt = new Date(await $.clock.now()).toISOString()
   try { await $.store.set('lastSeenAt', lastSeenAt) } catch { /* only affects the "new" count */ }
-  const r = await $.ui.open({ id: PANE, title: 'Todos', focus: true, closeOnEscape: true, columns: 42 })
+  const r = await $.ui.open({ id: PANE, title: 'Todos', focus: true, closeOnEscape: true, columns: PANE_COLUMNS })
   // Only a placed pane counts as open; otherwise the next press must try to open it again.
   paneOpen = r?.isPlaced === true
   if (!paneOpen) $.ui.toast('Could not open the todo pane: ' + (r?.reason ?? 'unknown reason'))
@@ -662,23 +666,41 @@ export function register(on) {
     }
 
     const projectOf = (i: Item) => i.project.split('\\').filter(Boolean).pop() ?? i.project
-    const metaOf = (i: Item) => [projectOf(i), sessionLabel(i), age(now, i.createdAt)].join(' · ')
+    // Project, session and age each in its own faint tint (a mid-tone drawn dim,
+    // readable on light and dark). Buttons take no colour, so this line is text:
+    // the title lines open the card.
+    const metaLine = (i: Item) => {
+      const room = Math.max(12, titleCols - 8)
+      const tint = (text: string, color: string) => Text({ color, dimColor: true, wrap: 'truncate-end', children: [text] })
+      const dot = Text({ dimColor: true, children: ['·'] })
+      return Box({ key: 'meta-' + i.id, flexDirection: 'row', columnGap: 1, children: [
+        tint(clip(projectOf(i), Math.ceil(room / 2)), META.project), dot,
+        tint(clip(sessionLabel(i), Math.floor(room / 2)), META.session), dot,
+        tint(age(now, i.createdAt), META.age),
+      ] })
+    }
     // List titles stay on one line; the open card shows them whole.
     const cols = Math.max(12, (e.props.bodyColumns ?? 40) - 1)
-    const titleCols = Math.max(16, cols - 4)
+    // Row chrome: border and padding (4), mark and gap (2), a spare column.
+    const titleCols = Math.max(16, cols - 7)
     const fresh = (i: Item) => tab !== 'done' && isNew(i, prevSeenAt)
     // A started item shows ▶ in place of its group mark.
     const markOf = (i: Item, mark: string, color?: string) =>
       i.status === 'in_progress' ? Text({ color: ACCENT, children: ['▶'] }) : Text({ color, dimColor: !color, children: [mark] })
 
-    // Scanning: mark, title (a button that opens the card), dim meta line. A
-    // pointer over the row lights it and shows quick ✓ / ✕ (no card needed).
-    const compactRow = (i: Item, mark: string, color?: string) =>
-      Box({
+    // Scanning: each item in its own lightly outlined box, so the list reads as
+    // separate entries. The title gets up to two lines, and every line of the
+    // row is pressable, so a press anywhere on it opens the card.
+    const compactRow = (i: Item, mark: string, color?: string) => {
+      const open = () => select(i.id)
+      const lines = wrapLines(i.title, titleCols - (fresh(i) ? 4 : 0), 2)
+      return Box({
         key: 'row-' + i.id,
         flexDirection: 'row',
         columnGap: 1,
-        marginBottom: 1,
+        borderStyle: 'round',
+        borderDimColor: true,
+        paddingX: 1,
         children: [
           markOf(i, mark, color),
           Box({
@@ -687,25 +709,16 @@ export function register(on) {
             flexShrink: 1,
             children: [
               Box({ flexDirection: 'row', columnGap: 1, children: [
-                Button({ key: 'title-' + i.id, plain: true, label: clip(i.title, titleCols - (fresh(i) ? 4 : 0)), onPress: () => select(i.id) }),
+                Button({ key: 'title-' + i.id, plain: true, label: lines[0] ?? '', onPress: open }),
                 ...(fresh(i) ? [Text({ color: ACCENT, children: ['new'] })] : []),
               ] }),
-              Text({ dimColor: true, wrap: 'truncate-end', children: [metaOf(i)] }),
+              ...(lines[1] ? [Button({ key: 'title2-' + i.id, plain: true, label: lines[1], onPress: open })] : []),
+              metaLine(i),
             ],
           }),
-          ...(tab === 'done' ? [] : [Box({
-            display: 'none',
-            hover: { display: 'flex' },
-            flexDirection: 'row',
-            columnGap: 1,
-            children: [
-              Button({ key: 'quick-done-' + i.id, plain: true, label: '✓',
-                onPress: () => (i.kind === 'proposal' ? closeItem(i, i.status, 'todo') : closeItem(i, 'done')) }),
-              Button({ key: 'quick-drop-' + i.id, plain: true, dimColor: true, label: '✕', onPress: () => closeItem(i, 'dropped') }),
-            ],
-          })]),
         ],
       })
+    }
 
     // One note: who and when on a dim line, the text under it.
     const noteView = (n: { by: string; text: string; at: string }, k: number, id: string) =>

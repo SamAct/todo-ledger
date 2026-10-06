@@ -20,19 +20,24 @@ test('an unnamed session stores no name and shows the short id', async ($, on) =
   const item = JSON.parse([...disk.values()][0])
   expect('sessionName' in item).toBe(false)
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  expect(await ui.find({ type: 'Text', text: /· sess · / })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'sess' })).toBeDefined()
 })
 
-test('list rows clip long titles to one line and show project, session and age', async ($, on) => {
+test('list rows wrap long titles to two lines and show project, session and age', async ($, on) => {
   const { disk } = setup(on, { sessionTitle: 'GeneralQues' })
   await start($)
   await $.tool.call({ tool: 'mcp__todo-ledger__park_item', title: LONG, kind: 'proposal' })
   const id = JSON.parse([...disk.values()][0]).id
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  const label = (await ui.find({ key: 'title-' + id })).props.label
-  expect(label.length <= 36).toBe(true)
-  expect(label.endsWith('…')).toBe(true)
-  expect(await ui.find({ type: 'Text', text: 'Demo · GeneralQues · now' })).toBeDefined()
+  const first = (await ui.find({ key: 'title-' + id })).props.label
+  const second = (await ui.find({ key: 'title2-' + id })).props.label
+  expect(first.length <= 36 && second.length <= 36).toBe(true)
+  expect(LONG.startsWith(first)).toBe(true)
+  expect(second.endsWith('…')).toBe(true)
+  expect(await ui.find({ type: 'Text', text: 'GeneralQues' })).toBeDefined()
+  // Each title line opens the card.
+  await ui.press({ key: 'title2-' + id })
+  expect(await ui.find({ type: 'Text', text: LONG })).toBeDefined()
 })
 
 test('the open card shows the full title, session line, details and a notes thread', async ($, on) => {
