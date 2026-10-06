@@ -552,6 +552,7 @@ export function register(on) {
 
   on('ui.render', { component: 'Pane' }, async ($, e, next) => {
     if (e.requestId !== PANE) return next(e)
+    try {
     const { Box, Text, Button, Input } = $.ui.resolve(e)
     // Mobile's element table has no Input or Select.
     const canInput = e.surface !== 'mobile'
@@ -829,6 +830,12 @@ export function register(on) {
         ...(expandedId === null && rows.length ? [Text({ dimColor: true, wrap: 'wrap', children: [hint] })] : []),
       ],
     })
+    } catch (err: any) {
+      // A failed draw shows its reason instead of a blank pane.
+      $.ui.log('pane draw failed: ' + (err?.stack ?? err?.message ?? String(err)))
+      const { Text } = $.ui.resolve(e)
+      return Text({ wrap: 'wrap', children: ["ToDo's could not draw: " + (err?.message ?? String(err))] })
+    }
   })
 
   on('turn.start', async ($, e, next) => {
