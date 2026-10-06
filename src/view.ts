@@ -53,12 +53,36 @@ export function itemsForTab(items: Item[], tab: Tab, project: string | null): It
     .slice(0, tab === 'done' ? 50 : 100)
 }
 
-export function bandLabel(items: Item[], lastSeenAt: string | null): string | null {
-  const open = items.filter(isOpen)
-  const fresh = open.filter((i) => i.origin === 'agent' && (lastSeenAt === null || i.createdAt > lastSeenAt))
-  if (open.length === 0) return null
+const inProject = (i: Item, project: string | null) => project === null || i.project.toLowerCase() === project.toLowerCase()
+
+// The footer button. It counts what the pane first shows (this project's open
+// items) and is always drawn, so the pane (Done tab included) stays reachable.
+export function bandLabel(items: Item[], lastSeenAt: string | null, project: string | null = null): string {
+  const open = items.filter((i) => isOpen(i) && inProject(i, project))
+  const fresh = open.filter((i) => isNew(i, lastSeenAt))
   // Compact: it shares the footer row with the mode labels.
-  return '☰ Todos ' + open.length + (fresh.length ? ' · ' + fresh.length + ' new' : '')
+  return '☰ Todos' + (open.length ? ' ' + open.length : '') + (fresh.length ? ' · ' + fresh.length + ' new' : '')
+}
+
+// An agent item added since the person last opened the pane.
+export function isNew(item: Item, lastSeenAt: string | null): boolean {
+  return isOpen(item) && item.origin === 'agent' && (lastSeenAt === null || item.createdAt > lastSeenAt)
+}
+
+// Where the pane opens: this project unless it has nothing open while others do,
+// and the open tab with items (Agent first) rather than an empty one.
+export function firstView(items: Item[], project: string, tab: Tab, allProjects: boolean): { tab: Tab; allProjects: boolean } {
+  const open = items.filter(isOpen)
+  const all = allProjects || (!open.some((i) => inProject(i, project)) && open.length > 0)
+  const scoped = open.filter((i) => all || inProject(i, project))
+  const has = (t: Tab) => scoped.some((i) => tabOf(i) === t)
+  if (tab !== 'done' && has(tab)) return { tab, allProjects: all }
+  return { tab: has('agent') ? 'agent' : has('human') ? 'human' : tab, allProjects: all }
+}
+
+// The list in the order the pane draws it: groups in GROUPS order inside an open tab.
+export function displayOrder(rows: Item[], tab: Tab): Item[] {
+  return tab === 'done' ? rows : groupItems(rows).flatMap((g) => g.items)
 }
 
 export function age(nowMs: number, iso: string): string {

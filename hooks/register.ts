@@ -5,7 +5,7 @@ import { KINDS, cleanTitle, clip, dedupeKey, isOpen, lastSessionTitle, makeItem,
 import type { Item, Kind, Origin, Source, Status } from '../src/item.ts'
 import { fallbackArgv, startOptions, startPrompt, terminalArgv, terminalTask } from '../src/start.ts'
 import type { StartChoice } from '../src/start.ts'
-import { TABS, age, bandLabel, groupItems, itemsForTab, tabOf } from '../src/view.ts'
+import { TABS, age, bandLabel, displayOrder, firstView, groupItems, isNew, itemsForTab, tabOf } from '../src/view.ts'
 import type { Tab } from '../src/view.ts'
 
 // Every function below that takes $ must stay top-level in this file: the validator
@@ -26,7 +26,14 @@ let expandedId: string | null = null
 let notingId: string | null = null
 let startingId: string | null = null
 let lastSeenAt: string | null = null
+// The visit before this one: rows newer than it carry a "new" mark while the pane is open.
+let prevSeenAt: string | null = null
+let allNotesId: string | null = null
 let cwd = ''
+// Soft look: grey fills instead of lines. Theme keys, so both light and dark themes fit.
+const FILL = 'userMessageBackground'
+const FILL_HOVER = 'userMessageBackgroundHover'
+const CLOSED_MEMORY_MS = 30 * 86_400_000
 let lastLoadAt = 0
 const REFRESH_MS = 5000
 const SYNC_MS = 10_000
@@ -144,11 +151,21 @@ async function capture(
   const existing = items.find((i) => isOpen(i) && dedupeKey(i.title, i.project) === key) ??
     items.find((i) => isOpen(i) && i.project.toLowerCase() === project.toLowerCase() && similarTitle(i.title, f.title))
   if (existing) {
+    // The scan re-reading a known item says nothing new; a note per turn was only noise.
+    if (f.source === 'scan' || f.source === 'todowrite') return { item: existing, isNew: false }
     const reworded = dedupeKey(existing.title, existing.project) !== key ? ' as "' + cleanTitle(f.title) + '"' : ''
     const text = 'Captured again (' + f.source + ')' + reworded + (f.body ? ': ' + f.body : '')
+    if (existing.notes.at(-1)?.text === text) return { item: existing, isNew: false }
     const updated = { ...existing, updatedAt: at, notes: [...existing.notes, { by: f.origin, text, at }] }
     await saveItem($, updated)
     return { item: updated, isNew: false }
+  }
+  // The scan must not bring back what was just finished or turned down when a
+  // later reply mentions it again; a person or an agent asking on purpose still can.
+  if (f.source === 'scan') {
+    const closed = items.find((i) => !isOpen(i) && i.project.toLowerCase() === project.toLowerCase() &&
+      now - Date.parse(i.updatedAt) < CLOSED_MEMORY_MS && (dedupeKey(i.title, i.project) === key || similarTitle(i.title, f.title)))
+    if (closed) return { item: closed, isNew: false }
   }
   const sessionId = await $.session.id()
   const name = sessionName ?? (await lookupSessionName($))
@@ -162,9 +179,14 @@ async function capture(
   return { item, isNew: true }
 }
 
+// Called while drawing: one folder listing at most every few seconds, and a full
+// reload only when the folder changed (reading every item file per draw was slow).
 async function refreshIfStale($: any): Promise<void> {
   try {
-    if ((await $.clock.now()) - lastLoadAt >= REFRESH_MS) await loadAll($)
+    const now = await $.clock.now()
+    if (now - lastLoadAt < REFRESH_MS) return
+    lastLoadAt = now
+    await syncIfChanged($)
   } catch { /* keep the old cache; the next command or tool reports the error */ }
 }
 
@@ -206,6 +228,14 @@ async function mirrorTodos($: any, todos: { content: string; status: string }[])
     const r = await capture($, { title: todo.content, kind: 'todo', origin: 'agent', source: 'todowrite' })
     linked.set(key, r.item.id)
     if (r.isNew && status !== 'open') await saveItem($, { ...r.item, status })
+  }
+  // TodoWrite sends the whole list each time: an entry it no longer carries was
+  // removed from the session's plan, so its mirror is dropped rather than left open forever.
+  const keep = new Set(todos.filter((t) => typeof t?.content === 'string').map((t) => dedupeKey(t.content, project)))
+  const at = new Date(await $.clock.now()).toISOString()
+  for (const i of await loadAll($)) {
+    if (i.source !== 'todowrite' || i.sessionId !== sessionId || !isOpen(i) || keep.has(dedupeKey(i.title, i.project))) continue
+    await saveItem($, { ...i, status: 'dropped', updatedAt: at, notes: [...i.notes, { by: 'agent' as Origin, text: 'removed from the session\'s task list', at }] })
   }
 }
 
@@ -256,6 +286,13 @@ async function togglePane($: any): Promise<void> {
     return
   }
   try { await loadAll($) } catch (err: any) { $.ui.toast('Ledger not loaded: ' + err.message) }
+  // Open on something to look at: a tab with items, and every project when this one has none.
+  let here = cwd
+  try { here = await $.session.cwd() } catch { /* keep the session.start value */ }
+  const view = firstView(cache, here, tab, allProjects)
+  tab = view.tab
+  allProjects = view.allProjects
+  prevSeenAt = lastSeenAt
   lastSeenAt = new Date(await $.clock.now()).toISOString()
   try { await $.store.set('lastSeenAt', lastSeenAt) } catch { /* only affects the "new" count */ }
   const r = await $.ui.open({ id: PANE, title: 'Todos', focus: true, closeOnEscape: true, columns: 42 })
@@ -494,8 +531,9 @@ export function register(on) {
   on('ui.render', { component: 'SessionMode' }, async ($, e, next) => {
     const theirs = await next(e)
     await refreshIfStale($)
-    const label = bandLabel(cache, lastSeenAt)
-    if (!label) return theirs
+    let here = cwd
+    try { here = await $.session.cwd() } catch { /* keep the session.start value */ }
+    const label = bandLabel(cache, lastSeenAt, here)
     const { Box, Button } = $.ui.resolve(e)
     const mine = Button({ key: 'ledger-toggle', label, plain: true, onPress: () => safeToggle($) })
     return Box({ key: 'ledger-footer', flexDirection: 'row', columnGap: 2, alignItems: 'center',
@@ -514,29 +552,48 @@ export function register(on) {
     let here = cwd
     try { here = await $.session.cwd() } catch { /* keep the session.start value */ }
     const rows = itemsForTab(cache, tab, allProjects ? null : here)
+    const ordered = displayOrder(rows, tab)
 
     const scoped = cache.filter((i) => allProjects || i.project.toLowerCase() === here.toLowerCase())
     const count = (t: Tab) => scoped.filter((i) => tabOf(i) === t).length
     const openCount = scoped.filter((i) => tabOf(i) !== 'done').length
-    // Rules are cut, never wrapped, so a narrow dock can't break them onto two lines.
-    const cols = Math.max(12, (e.props.bodyColumns ?? 40) - 1)
-    const rule = () => Text({ dimColor: true, wrap: 'truncate-end', children: ['─'.repeat(cols)] })
     const select = (id: string | null) => { expandedId = id; startingId = null; notingId = null; deletingId = null; redraw() }
+
+    // Closing an item from its card opens the next one, so a run of items is
+    // triaged with one press each instead of select, act, select again.
+    const closeItem = async (i: Item, status: Status, kindChange?: Kind) => {
+      const at = ordered.findIndex((x) => x.id === i.id)
+      const following = ordered.slice(at + 1).concat(ordered.slice(0, Math.max(0, at))).find((x) => x.id !== i.id)
+      try {
+        if (kindChange) {
+          const stamp = new Date(await $.clock.now()).toISOString()
+          await saveItem($, { ...i, kind: kindChange, updatedAt: stamp, notes: [...i.notes, { by: 'human' as Origin, text: 'approved', at: stamp }] })
+        } else await setStatus($, i.id, status)
+      } catch (err: any) { $.ui.toast('Todo not saved: ' + err.message); return }
+      if (kindChange) { redraw(); return }
+      select(expandedId === i.id ? (following?.id ?? null) : expandedId)
+    }
+
+    // Soft chip: dim text on a grey fill.
+    const chip = (text: string, extra: Record<string, unknown> = {}) =>
+      Box({ backgroundColor: FILL, paddingX: 1, children: [Text({ dimColor: true, children: [text] })], ...extra })
 
     // Row 1: where the list comes from, kept apart from the tabs.
     const scopeRow = Box({
       flexDirection: 'row',
       justifyContent: 'space-between',
       children: [
-        Button({ key: 'scope', plain: true, hotkey: 'p',
-          label: (allProjects ? 'All projects' : 'This project') + ' ▾',
-          onPress: () => { allProjects = !allProjects; select(null) } }),
+        Box({ backgroundColor: FILL, paddingX: 1, children: [
+          Button({ key: 'scope', plain: true, hotkey: 'p',
+            label: (allProjects ? 'All projects' : 'This project') + ' ▾',
+            onPress: () => { allProjects = !allProjects; select(null) } }),
+        ] }),
         Box({
           flexDirection: 'row',
           columnGap: 2,
           children: [
             Text({ dimColor: true, children: [openCount + ' open'] }),
-            Button({ key: 'refresh', plain: true, hotkey: 'r', label: '↻ Refresh',
+            Button({ key: 'refresh', plain: true, dimColor: true, hotkey: 'r', label: '↻',
               onPress: async () => {
                 try { await forceRefresh($) } catch (err: any) { $.ui.toast('Refresh failed: ' + err.message) }
               } }),
@@ -545,21 +602,27 @@ export function register(on) {
       ],
     })
 
-    // Row 2: who started it.
+    // Row 2: who started it, as a soft segmented track; the chosen tab is bold.
     const tabRow = Box({
       flexDirection: 'row',
       columnGap: 3,
+      backgroundColor: FILL,
+      paddingX: 1,
+      marginY: 1,
       children: TABS.map((t) =>
         Button({ key: 'tab-' + t.id, plain: true, hotkey: t.hotkey, dimColor: tab !== t.id,
           label: t.id === 'done' ? t.label : t.label + ' ' + count(t.id),
           onPress: () => { tab = t.id; select(null) } })),
     })
 
-    // Start, Done, Drop, Note: always the same order, Start the one primary.
+    // The card's actions in one fixed order, the first the primary. Proposals are
+    // decided (Approve / Reject) rather than worked, so they lead with that.
     const actionsFor = (i: Item) => {
       if (startingId === i.id) return [startChooser($, e, i)]
+      // Letter keys act on the open card, except while a note is being typed.
+      const hk = (k: string) => (notingId === null ? { hotkey: k } : {})
       if (tab === 'done') {
-        const reopen = Button({ key: 'reopen-' + i.id, label: 'Reopen', onPress: () => markStatus($, i.id, 'open') })
+        const reopen = Button({ key: 'reopen-' + i.id, label: 'Reopen', ...hk('o'), onPress: () => markStatus($, i.id, 'open') })
         if (i.status !== 'dropped') return [reopen]
         // Two-step: the first press arms it; only Confirm deletes the file.
         if (deletingId === i.id) {
@@ -576,38 +639,72 @@ export function register(on) {
         }
         return [reopen, Button({ key: 'delete-' + i.id, label: 'Delete forever', onPress: () => { deletingId = i.id; redraw() } })]
       }
+      const start = Button({ key: 'start-' + i.id, label: 'Start', ...hk('s'),
+        ...(i.kind === 'proposal' ? {} : { variant: 'primary' as const }),
+        onPress: () => { startingId = i.id; notingId = null; redraw() } })
+      const note = canInput && notingId !== i.id
+        ? [Button({ key: 'note-' + i.id, label: 'Note', ...hk('n'), onPress: () => { notingId = i.id; startingId = null; redraw() } })]
+        : []
+      if (i.kind === 'proposal') {
+        return [
+          Button({ key: 'approve-' + i.id, label: 'Approve', variant: 'primary', ...hk('a'), onPress: () => closeItem(i, i.status, 'todo') }),
+          Button({ key: 'drop-' + i.id, label: 'Reject', ...hk('x'), onPress: () => closeItem(i, 'dropped') }),
+          start,
+          ...note,
+        ]
+      }
       return [
-        Button({ key: 'start-' + i.id, label: 'Start', variant: 'primary', onPress: () => { startingId = i.id; notingId = null; redraw() } }),
-        Button({ key: 'done-' + i.id, label: 'Done', onPress: () => markStatus($, i.id, 'done') }),
-        Button({ key: 'drop-' + i.id, label: 'Drop', onPress: () => markStatus($, i.id, 'dropped') }),
-        ...(canInput && notingId !== i.id
-          ? [Button({ key: 'note-' + i.id, label: 'Add note', onPress: () => { notingId = i.id; startingId = null; redraw() } })]
-          : []),
+        start,
+        Button({ key: 'done-' + i.id, label: 'Done', ...hk('d'), onPress: () => closeItem(i, 'done') }),
+        Button({ key: 'drop-' + i.id, label: 'Drop', ...hk('x'), onPress: () => closeItem(i, 'dropped') }),
+        ...note,
       ]
     }
 
     const projectOf = (i: Item) => i.project.split('\\').filter(Boolean).pop() ?? i.project
     const metaOf = (i: Item) => [projectOf(i), sessionLabel(i), age(now, i.createdAt)].join(' · ')
     // List titles stay on one line; the open card shows them whole.
+    const cols = Math.max(12, (e.props.bodyColumns ?? 40) - 1)
     const titleCols = Math.max(16, cols - 4)
+    const fresh = (i: Item) => tab !== 'done' && isNew(i, prevSeenAt)
+    // A started item shows ▶ in place of its group mark.
+    const markOf = (i: Item, mark: string, color?: string) =>
+      i.status === 'in_progress' ? Text({ color: 'suggestion', children: ['▶'] }) : Text({ color, children: [mark] })
 
-    // Scanning: one mark, the title (a button that selects it), a dim meta line.
+    // Scanning: mark, title (a button that opens the card), dim meta line. A
+    // pointer over the row lights it and shows quick ✓ / ✕ (no card needed).
     const compactRow = (i: Item, mark: string, color?: string) =>
       Box({
         key: 'row-' + i.id,
         flexDirection: 'row',
         columnGap: 1,
         marginBottom: 1,
+        hover: { backgroundColor: FILL_HOVER },
         children: [
-          Text({ color, children: [mark] }),
+          markOf(i, mark, color),
           Box({
             flexDirection: 'column',
+            flexGrow: 1,
             flexShrink: 1,
             children: [
-              Button({ key: 'title-' + i.id, plain: true, label: clip(i.title, titleCols), onPress: () => select(i.id) }),
+              Box({ flexDirection: 'row', columnGap: 1, children: [
+                Button({ key: 'title-' + i.id, plain: true, label: clip(i.title, titleCols - (fresh(i) ? 4 : 0)), onPress: () => select(i.id) }),
+                ...(fresh(i) ? [Text({ color: 'suggestion', bold: true, children: ['new'] })] : []),
+              ] }),
               Text({ dimColor: true, wrap: 'truncate-end', children: [metaOf(i)] }),
             ],
           }),
+          ...(tab === 'done' ? [] : [Box({
+            display: 'none',
+            hover: { display: 'flex' },
+            flexDirection: 'row',
+            columnGap: 1,
+            children: [
+              Button({ key: 'quick-done-' + i.id, plain: true, label: '✓',
+                onPress: () => (i.kind === 'proposal' ? closeItem(i, i.status, 'todo') : closeItem(i, 'done')) }),
+              Button({ key: 'quick-drop-' + i.id, plain: true, dimColor: true, label: '✕', onPress: () => closeItem(i, 'dropped') }),
+            ],
+          })]),
         ],
       })
 
@@ -623,30 +720,36 @@ export function register(on) {
         ],
       })
 
-    // Acting: the picked item opens into a bordered card: title, where it came
-    // from, details, the notes thread, then the actions.
+    // Acting: the picked item opens into a soft filled card: title, where it came
+    // from, details, the latest notes, then the actions.
     const selectedCard = (i: Item, mark: string, color?: string) => {
       const noting = notingId === i.id && canInput
+      const kindWord = i.kind === 'deferred' ? 'parked' : i.kind
+      const metaLine = [kindWord, ...(i.status === 'in_progress' ? ['in progress'] : []), projectOf(i), age(now, i.createdAt)].join(' · ')
       const sessionLine = 'Session ' + sessionLabel(i) + (i.sessionName ? ' · ' + i.sessionId.split('-')[0] : '')
+      // Long threads show their latest three; the rest is one press away.
+      const showAll = allNotesId === i.id
+      const hidden = showAll ? 0 : Math.max(0, i.notes.length - 3)
       return Box({
         key: 'row-' + i.id,
         flexDirection: 'column',
-        borderStyle: 'round',
+        backgroundColor: FILL,
         paddingX: 1,
+        paddingY: 1,
         marginBottom: 1,
         children: [
           Box({
             flexDirection: 'row',
             columnGap: 1,
             children: [
-              Text({ color, children: [mark] }),
+              markOf(i, mark, color),
               Box({
                 flexDirection: 'column',
                 flexGrow: 1,
                 flexShrink: 1,
                 children: [
                   Text({ bold: true, wrap: 'wrap', children: [i.title] }),
-                  Text({ dimColor: true, wrap: 'wrap', children: [projectOf(i) + ' · ' + age(now, i.createdAt)] }),
+                  Text({ dimColor: true, wrap: 'wrap', children: [metaLine] }),
                   Text({ dimColor: true, wrap: 'wrap', children: [sessionLine] }),
                 ],
               }),
@@ -659,8 +762,12 @@ export function register(on) {
                 flexDirection: 'column',
                 marginTop: 1,
                 children: [
-                  Text({ bold: true, dimColor: true, children: ['Notes' + (i.notes.length ? ' · ' + i.notes.length : '')] }),
-                  ...i.notes.map((n, k) => noteView(n, k, i.id)),
+                  Text({ dimColor: true, children: ['Notes' + (i.notes.length ? ' · ' + i.notes.length : '')] }),
+                  ...(hidden
+                    ? [Button({ key: 'notes-more-' + i.id, plain: true, dimColor: true, label: 'Show ' + hidden + ' earlier',
+                        onPress: () => { allNotesId = i.id; redraw() } })]
+                    : []),
+                  ...i.notes.slice(hidden).map((n, k) => noteView(n, k + hidden, i.id)),
                   ...(noting
                     ? [Box({
                         flexDirection: 'column',
@@ -696,19 +803,20 @@ export function register(on) {
               flexDirection: 'row',
               columnGap: 1,
               marginBottom: 1,
-              children: [Text({ bold: true, dimColor: true, children: [g.label] }), Text({ dimColor: true, children: [String(g.items.length)] })],
+              children: [Text({ dimColor: true, children: [g.label] }), chip(String(g.items.length))],
             }),
             ...g.items.map((i) => itemView(i, g.mark, g.color)),
           ])
 
+    const hint = tab === 'done' ? 'Select an item to reopen or delete it'
+      : 'Select an item for its card · keys there: s start · d done · x drop · n note'
     return Box({
       flexDirection: 'column',
       children: [
         scopeRow,
         tabRow,
-        rule(),
         ...body,
-        Text({ dimColor: true, wrap: 'wrap', children: ['Select an item for details and actions'] }),
+        ...(expandedId === null && rows.length ? [Text({ dimColor: true, wrap: 'wrap', children: [hint] })] : []),
       ],
     })
   })
@@ -767,17 +875,23 @@ export function register(on) {
       if (match.length !== 1) return { result: 'No single item matches id ' + e.id }
       if (e.kind !== undefined && !KINDS.includes(e.kind)) return { result: 'Not saved: kind must be one of ' + KINDS.join(', ') }
       if (e.title !== undefined && (typeof e.title !== 'string' || !e.title.trim())) return { result: 'Not saved: title cannot be empty' }
-      const status = STATUS_VALUES.includes(e.status) ? e.status : match[0].status
-      const item = await setStatus($, match[0].id, status, e.note)
-      if (!item) return { result: 'No single item matches id ' + e.id }
+      // A wrong status used to be ignored while the reply still said "updated".
+      if (e.status !== undefined && !STATUS_VALUES.includes(e.status)) return { result: 'Not saved: status must be one of ' + STATUS_VALUES.join(', ') }
+      const item = match[0]
+      const at = new Date(await $.clock.now()).toISOString()
       const edits = {
         ...(e.title !== undefined ? { title: cleanTitle(e.title) } : {}),
         ...(e.kind !== undefined ? { kind: e.kind as Kind } : {}),
         ...(typeof e.body === 'string' ? { body: e.body } : {}),
       }
-      const final = Object.keys(edits).length ? { ...item, ...edits } : item
-      if (final !== item) await saveItem($, final)
-      const changed = ['status ' + final.status, ...Object.keys(edits), ...(e.note ? ['note added'] : [])]
+      const note = typeof e.note === 'string' && e.note.trim() ? e.note.trim() : ''
+      // One write for every change, so another session never sees half an update.
+      const final: Item = {
+        ...item, ...edits, status: (e.status as Status | undefined) ?? item.status, updatedAt: at,
+        notes: note ? [...item.notes, { by: 'agent' as Origin, text: note, at }] : item.notes,
+      }
+      await saveItem($, final)
+      const changed = ['status ' + final.status, ...Object.keys(edits), ...(note ? ['note added'] : [])]
       return { result: 'Item ' + final.id + ' updated: ' + changed.join(', ') }
     } catch (err: any) {
       $.ui.toast('Todo not saved: ' + err.message)
@@ -787,6 +901,8 @@ export function register(on) {
 
   on('tool.call', { tool: 'TodoWrite' }, async ($, e, next) => {
     const result = await next(e)
+    // Subagents' and workflow agents' working lists are theirs, not the person's ledger.
+    if (e.agentId !== undefined) return result
     try {
       await mirrorTodos($, Array.isArray(e.todos) ? e.todos : [])
     } catch (err: any) {

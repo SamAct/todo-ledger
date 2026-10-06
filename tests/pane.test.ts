@@ -8,11 +8,11 @@ const PANE = { plugin: 'todo-ledger', component: 'Pane', requestId: 'todo-ledger
 
 // Item titles are drawn as Button labels, so title lookups use type 'Button' (api-notes item 15).
 
-test('empty ledger: band keeps engine content and adds no button', async ($, on) => {
+test('empty ledger: band keeps engine content and still offers the pane', async ($, on) => {
   setup(on)
   await start($)
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  expect(await ui.find({ key: 'ledger-toggle' })).toBeUndefined()
+  expect((await ui.find({ key: 'ledger-toggle' })).props.label).toBe('☰ Todos')
   expect(await ui.find({ type: 'Text', text: 'engine' })).toBeDefined()
 })
 
@@ -87,15 +87,15 @@ test('actions appear only once an item is selected, on every surface', async ($,
   }
 })
 
-test('the selected item opens into a bordered card with full title and notes', async ($, on) => {
+test('the selected item opens into a filled card with full title and notes', async ($, on) => {
   const { disk } = setup(on)
   await start($)
   await $.tool.call({ tool: 'mcp__todo-ledger__park_item', title: 'a long title that the list row would cut off', kind: 'proposal', body: 'why it matters' })
   const id = JSON.parse([...disk.values()][0]).id
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  expect((await ui.find({ key: 'row-' + id })).props.borderStyle).toBeUndefined()
+  expect((await ui.find({ key: 'row-' + id })).props.backgroundColor).toBeUndefined()
   await ui.press({ key: 'title-' + id })
-  expect((await ui.find({ key: 'row-' + id })).props.borderStyle).toBe('round')
+  expect((await ui.find({ key: 'row-' + id })).props.backgroundColor).toBe('userMessageBackground')
   expect(await ui.find({ type: 'Text', text: 'a long title that the list row would cut off' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'why it matters' })).toBeDefined()
 })

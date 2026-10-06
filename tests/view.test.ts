@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import { makeItem } from '../src/item.ts'
-import { TABS, age, bandLabel, groupItems, itemsForTab, kindTag, tabOf } from '../src/view.ts'
+import { TABS, age, bandLabel, firstView, groupItems, itemsForTab, kindTag, tabOf } from '../src/view.ts'
 
 const mk = (over: any) => ({ ...makeItem({ title: 't', kind: 'todo', origin: 'agent', source: 'tool', project: 'P', sessionId: 's', nowMs: 0, hex4: '0000' }), ...over })
 
@@ -41,11 +41,22 @@ test('itemsForTab filters project, sorts newest first, caps', async () => {
   expect(itemsForTab(items, 'agent', null).length).toBe(100)
 })
 
-test('bandLabel counts open and new agent items; null when nothing', async () => {
-  expect(bandLabel([], null)).toBe(null)
+test('bandLabel counts open and new agent items; always drawn', async () => {
+  expect(bandLabel([], null)).toBe('☰ Todos')
   const items = [mk({ createdAt: '2026-10-03T10:00:00.000Z' }), mk({ origin: 'human', createdAt: '2026-10-03T11:00:00.000Z' }), mk({ status: 'done' })]
   expect(bandLabel(items, '2026-10-03T09:00:00.000Z')).toBe('☰ Todos 2 · 1 new')
   expect(bandLabel(items, '2026-10-03T12:00:00.000Z')).toBe('☰ Todos 2')
+  // Scoped to the project the pane opens on.
+  expect(bandLabel(items, null, 'D:/elsewhere')).toBe('☰ Todos')
+})
+
+test('firstView opens a tab with items and falls back to all projects', async () => {
+  const agent = mk({ origin: 'agent' })
+  const human = mk({ origin: 'human' })
+  expect(firstView([human], human.project, 'agent', false)).toEqual({ tab: 'human', allProjects: false })
+  expect(firstView([agent, human], agent.project, 'human', false)).toEqual({ tab: 'human', allProjects: false })
+  expect(firstView([agent], 'D:/elsewhere', 'agent', false)).toEqual({ tab: 'agent', allProjects: true })
+  expect(firstView([], 'D:/x', 'done', false)).toEqual({ tab: 'done', allProjects: false })
 })
 
 test('age', async () => {
