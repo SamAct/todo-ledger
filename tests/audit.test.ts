@@ -182,3 +182,21 @@ test('the Start choices are short and only Send carries weight', async ($, on) =
   expect((await ui.find({ key: 'start-draft-' + id })).props.plain).toBe(true)
   expect((await ui.find({ key: 'start-copy-' + id })).props.label).toBe('Copy')
 })
+
+test('a long list draws its first 40 rows and a Show more button; the card closes with Close', async ($, on) => {
+  const { disk, clock } = setup(on)
+  await start($)
+  for (let n = 0; n < 45; n++) {
+    await $.tool.call({ tool: 'mcp__todo-ledger__park_item', title: 'task number ' + n, kind: 'todo' })
+    await clock.advance(1000)
+  }
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect((await ui.find({ key: 'show-all-rows' })).props.label).toBe('Show 5 more')
+  await ui.press({ key: 'show-all-rows' })
+  expect(await ui.find({ key: 'show-all-rows' })).toBeUndefined()
+  const id = items(disk).find((i) => i.title === 'task number 0').id
+  await ui.press({ key: 'title-' + id })
+  expect((await ui.find({ key: 'close-' + id })).props.label).toBe('Close')
+  await ui.press({ key: 'close-' + id })
+  expect(await ui.find({ key: 'done-' + id })).toBeUndefined()
+})

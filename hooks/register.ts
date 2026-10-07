@@ -33,6 +33,10 @@ let expandedId: string | null = null
 let notingId: string | null = null
 let startingId: string | null = null
 let allNotesId: string | null = null
+// The list draws its first LIST_LIMIT rows (in display order) until the person asks for all:
+// fewer elements per draw keeps presses responsive on a long ledger.
+const LIST_LIMIT = 40
+let showAllRows = false
 let cwd = ''
 // One accent colour for what needs attention (the open card, the decision mark,
 // started items); everything else is hierarchy by weight, dimming and spacing.
@@ -553,6 +557,9 @@ export function register(on) {
     try { here = await $.session.cwd() } catch { /* keep the session.start value */ }
     const rows = itemsForTab(cache, tab, allProjects ? null : here)
     const ordered = displayOrder(rows, tab)
+    const head = ordered.slice(0, LIST_LIMIT)
+    const picked = ordered.find((x) => x.id === expandedId)
+    const shown = showAllRows ? ordered : picked && !head.includes(picked) ? [...head, picked] : head
 
     const scoped = cache.filter((i) => allProjects || i.project.toLowerCase() === here.toLowerCase())
     const count = (t: Tab) => scoped.filter((i) => tabOf(i) === t).length
@@ -583,7 +590,7 @@ export function register(on) {
       children: [
         Button({ key: 'scope', plain: true, hotkey: 'p',
           label: (allProjects ? 'All projects' : 'This project') + ' ▾',
-          onPress: () => { allProjects = !allProjects; select(null) } }),
+          onPress: () => { allProjects = !allProjects; showAllRows = false; select(null) } }),
         Button({ key: 'refresh', plain: true, dimColor: true, hotkey: 'r', label: '↻',
           onPress: async () => {
             try { await forceRefresh($) } catch (err: any) { $.ui.toast('Refresh failed: ' + err.message) }
@@ -599,7 +606,7 @@ export function register(on) {
       children: TABS.map((t) =>
         Button({ key: 'tab-' + t.id, plain: true, hotkey: t.hotkey, dimColor: tab !== t.id,
           label: t.label + ' ' + count(t.id),
-          onPress: () => { tab = t.id; select(null) } })),
+          onPress: () => { tab = t.id; showAllRows = false; select(null) } })),
     })
 
     // The card's actions in one fixed order, the first the primary. Proposals are
@@ -758,7 +765,7 @@ export function register(on) {
                   metaLine(i),
                 ],
               }),
-              Button({ key: 'close-' + i.id, plain: true, dimColor: true, label: '✕', onPress: () => select(null) }),
+              Button({ key: 'close-' + i.id, plain: true, dimColor: true, label: 'Close', onPress: () => select(null) }),
             ],
           }),
           ...(i.body ? [Box({ marginTop: 1, children: [Text({ wrap: 'wrap', children: [i.body] })] })] : []),
@@ -797,11 +804,16 @@ export function register(on) {
             : 'Nothing open. Claude adds what it parks or proposes; add your own with /todo add <text>.',
         ] })]
       : tab === 'done'
-        ? rows.map((i, k) => itemView(i, i.status === 'dropped' ? '✕' : '✓', undefined, k === rows.length - 1))
-        : groupItems(rows).flatMap((g, gi) => [
+        ? shown.map((i, k) => itemView(i, i.status === 'dropped' ? '✕' : '✓', undefined, k === shown.length - 1))
+        : groupItems(shown).flatMap((g, gi) => [
             Box({ ...(gi === 0 ? {} : { marginTop: 1 }), children: [Text({ dimColor: true, children: [g.label] })] }),
             ...g.items.map((i, k) => itemView(i, g.mark, g.color, k === g.items.length - 1)),
           ])
+    const more = ordered.length - shown.length
+    if (more > 0) {
+      body.push(Box({ marginTop: 1, children: [Button({ key: 'show-all-rows', plain: true, dimColor: true,
+        label: 'Show ' + more + ' more', onPress: () => { showAllRows = true; redraw() } })] }))
+    }
 
     return Box({
       flexDirection: 'column',
