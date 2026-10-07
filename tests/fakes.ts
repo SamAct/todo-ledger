@@ -3,19 +3,22 @@ import { mock } from 'claude-code/testing'
 export const HOME = 'C:\\Users\\t'
 export const DIR = HOME + '\\.claude\\todo-ledger\\items'
 export const CWD = 'D:\\Projects\\Demo'
+export const POSIX_HOME = '/home/t'
 
 const ZERO_USAGE = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
 
 export function setup(on: any, opts: {
   modelText?: string; modelAnswered?: boolean; denyWrite?: string; files?: Record<string, string>
   denyRead?: string[]; failArgv0?: string; copyFails?: boolean; openPlaced?: boolean; failRegister?: string[]; noHome?: boolean
-  sessionTitle?: string
+  sessionTitle?: string; posix?: boolean
 } = {}) {
   const disk = new Map<string, string>(Object.entries(opts.files ?? {}))
+  // On a Windows test host the kit resolves '/home/t/...' to 'D:\home\t\...'; undo it for the POSIX tests.
+  const norm = (p: string) => (/^[A-Za-z]:\\home\\/.test(p) ? p.slice(2).replace(/\\/g, '/') : p)
   const calls = { argv: [] as string[][], submits: [] as string[], fills: [] as string[], copies: [] as string[], logs: [] as string[], toasts: [] as string[], tools: [] as string[], toolDescs: {} as Record<string, string>, commands: [] as string[], opens: [] as string[], openArgs: [] as any[], models: 0, reads: 0, prompts: [] as string[] }
   const store = new Map<string, unknown>()
 
-  mock.env(on, opts.noHome ? {} : { USERPROFILE: HOME })
+  mock.env(on, opts.noHome ? {} : opts.posix ? { HOME: POSIX_HOME } : { USERPROFILE: HOME, OS: 'Windows_NT' })
   on('session.start', () => ({ cwd: CWD }))
   on('session.cwd', () => ({ value: CWD }))
   on('session.id', () => ({ value: 'sess-1' }))
@@ -27,24 +30,26 @@ export function setup(on: any, opts: {
   on('tool.register', ($: any, e: any) => { calls.tools.push(e.name); calls.toolDescs[e.name] = e.description; return { value: { tool: 'mcp__todo-ledger__' + e.name } } })
   on('store.get', ($: any, e: any) => ({ value: store.get(e.key) }))
   on('store.set', ($: any, e: any) => { store.set(e.key, e.value); return { value: undefined } })
-  on('fs.exists', ($: any, e: any) => ({ value: e.path === DIR || disk.has(e.path) }))
+  on('fs.exists', ($: any, e: any) => ({ value: norm(e.path) === DIR || norm(e.path) === POSIX_HOME + '/.claude/todo-ledger/items' || disk.has(norm(e.path)) }))
   on('fs.list', ($: any, e: any) => ({
     value: [...disk.keys()]
-      .filter((p) => p.startsWith(e.path + '\\'))
-      .map((p) => ({ name: p.slice(e.path.length + 1), kind: 'file', size: disk.get(p)!.length, mtimeMs: 0, isLink: false })),
+      .filter((p) => p.startsWith(e.path + '\\') || p.startsWith(norm(e.path) + '/'))
+      .map((p) => ({ name: p.slice(norm(e.path).length + 1), kind: 'file', size: disk.get(p)!.length, mtimeMs: 0, isLink: false })),
   }))
   on('fs.read', ($: any, e: any) => {
     calls.reads += 1
     if (opts.denyRead?.some((n) => e.path.endsWith('\\' + n))) return { deny: 'file over 4 MiB' }
-    return { value: disk.get(e.path) ?? '' }
+    return { value: disk.get(norm(e.path)) ?? '' }
   })
-  on('fs.write', ($: any, e: any) => { if (opts.denyWrite) return { deny: opts.denyWrite }; disk.set(e.path, e.text); return { value: undefined } })
+  on('fs.write', ($: any, e: any) => { if (opts.denyWrite) return { deny: opts.denyWrite }; disk.set(norm(e.path), e.text); return { value: undefined } })
   on('process.run', ($: any, e: any) => {
     calls.argv.push(e.argv)
     if (opts.failArgv0 && e.argv[0] === opts.failArgv0) {
       return { value: { exitCode: 1, stdout: '', stderr: 'not found', isStdoutTruncated: false, isStderrTruncated: false } }
     }
     if (e.argv[2] === 'move') { disk.set(e.argv[5], disk.get(e.argv[4])!); disk.delete(e.argv[4]) }
+    if (e.argv[0] === 'mv') { disk.set(e.argv[3], disk.get(e.argv[2])!); disk.delete(e.argv[2]) }
+    if (e.argv[0] === 'rm') disk.delete(String(e.argv.at(-1)))
     if (e.argv[2] === 'del') disk.delete(String(e.argv.at(-1)))
     // Session-name lookup: find the transcript, then its custom-title lines.
     if (e.argv[2] === 'dir' && opts.sessionTitle) return { value: { exitCode: 0, stdout: HOME + '\\.claude\\projects\\D--x\\sess-1.jsonl\r\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }

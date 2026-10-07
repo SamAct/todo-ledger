@@ -55,14 +55,41 @@ let folderSig = ''
 // TodoWrite entries (by dedupe key) already linked to a ledger item in this session.
 const linked = new Map<string, string>()
 
+// The machine the session runs on: Windows uses USERPROFILE, '\' and cmd; macOS and
+// Linux use HOME, '/' and POSIX tools. Read once, from the environment.
+let host: { win: boolean; sep: string; home: string } | null = null
+
+async function hostOf($: any): Promise<{ win: boolean; sep: string; home: string }> {
+  if (host) return host
+  const win = (await $.env.get('OS')) === 'Windows_NT'
+  const home = (win ? await $.env.get('USERPROFILE') : undefined) || (await $.env.get('HOME')) || (await $.env.get('USERPROFILE'))
+  if (!home) throw new Error('Neither HOME nor USERPROFILE is set, so the ledger folder cannot be found')
+  host = { win, sep: win ? '\\' : '/', home }
+  return host
+}
+
+// Moves a file over another, replacing it (how a save lands in one step).
+async function moveFile($: any, from: string, to: string): Promise<{ exitCode: number; stderr: string }> {
+  const h = await hostOf($)
+  return $.process.run(h.win ? ['cmd', '/c', 'move', '/y', from, to] : ['mv', '-f', from, to])
+}
+
+async function removeFile($: any, path: string): Promise<{ exitCode: number; stderr: string }> {
+  const h = await hostOf($)
+  return $.process.run(h.win ? ['cmd', '/c', 'del', '/q', path] : ['rm', '-f', path])
+}
+
 async function ledgerDir($: any): Promise<string> {
-  const home = await $.env.get('USERPROFILE')
-  if (!home) throw new Error('USERPROFILE is not set, so the ledger folder cannot be found')
-  return home + '\\.claude\\todo-ledger'
+  const h = await hostOf($)
+  return [h.home, '.claude', 'todo-ledger'].join(h.sep)
+}
+
+async function sep($: any): Promise<string> {
+  return (await hostOf($)).sep
 }
 
 async function itemsDir($: any): Promise<string> {
-  return (await ledgerDir($)) + '\\items'
+  return (await ledgerDir($)) + (await sep($)) + 'items'
 }
 
 async function loadAll($: any): Promise<Item[]> {
@@ -75,7 +102,7 @@ async function loadAll($: any): Promise<Item[]> {
     if (!entry.name.endsWith('.json')) continue
     // A read can reject (over 4 MiB, permission, removed since the list); treat it like bad JSON.
     let text: string | null
-    try { text = await $.fs.read(dir + '\\' + entry.name) } catch { text = null }
+    try { text = await $.fs.read(dir + (await sep($)) + entry.name) } catch { text = null }
     const item = text === null ? null : parseItem(text)
     if (item) items.push(item)
     else if (!reportedBad.has(entry.name)) {
@@ -120,9 +147,9 @@ async function forceRefresh($: any): Promise<number> {
 async function saveItem($: any, item: Item): Promise<void> {
   // $.fs.write creates missing parent directories, so no separate mkdir step.
   const dir = await itemsDir($)
-  const path = dir + '\\' + item.id + '.json'
+  const path = dir + (await sep($)) + item.id + '.json'
   await $.fs.write(path + '.tmp', JSON.stringify(item, null, 2))
-  const r = await $.process.run(['cmd', '/c', 'move', '/y', path + '.tmp', path])
+  const r = await moveFile($, path + '.tmp', path)
   if (r.exitCode !== 0) throw new Error('could not save ' + item.id + ': ' + r.stderr.trim())
   cache = [...cache.filter((i) => i.id !== item.id), item]
   $.ui.invalidate('ui.render')
@@ -137,16 +164,20 @@ async function lookupSessionName($: any): Promise<string | null> {
   try {
     if (!transcriptPath) {
       const id = await $.session.id()
-      const home = await $.env.get('USERPROFILE')
-      if (!home) return sessionName
-      const found = await $.process.run(['cmd', '/c', 'dir', '/s', '/b', home + '\\.claude\\projects\\' + id + '.jsonl'])
+      const h = await hostOf($)
+      const projects = [h.home, '.claude', 'projects'].join(h.sep)
+      const found = await $.process.run(h.win
+        ? ['cmd', '/c', 'dir', '/s', '/b', projects + h.sep + id + '.jsonl']
+        : ['find', projects, '-name', id + '.jsonl'])
       const first = found.exitCode === 0 ? found.stdout.split(/\r?\n/).find((l: string) => l.trim()) : undefined
       if (!first) return sessionName
       transcriptPath = first.trim()
     }
-    // findstr prints only lines that begin with a title record, so a large
+    // findstr / grep print only lines that begin with a title record, so a large
     // transcript is never read whole (`.` matches the quotes in the regex).
-    const r = await $.process.run(['findstr', '/r', '/b', '/c:{.type.:.custom-title.', transcriptPath])
+    const r = await $.process.run((await hostOf($)).win
+      ? ['findstr', '/r', '/b', '/c:{.type.:.custom-title.', transcriptPath]
+      : ['grep', '^{.type.:.custom-title.', transcriptPath])
     sessionName = lastSessionTitle(r.stdout) ?? sessionName
   } catch { /* keep the last known name */ }
   return sessionName
@@ -186,7 +217,7 @@ async function capture(
   const dir = await itemsDir($)
   // Ids are second-resolution plus 4 hex chars and `move /y` overwrites, so check before the first write.
   let item = makeItem({ ...f, title: cleanTitle(f.title), project, sessionId, sessionName: name ?? undefined, nowMs: now, hex4: randomHex4() })
-  for (let tries = 0; tries < 5 && (await $.fs.exists(dir + '\\' + item.id + '.json')); tries++) {
+  for (let tries = 0; tries < 5 && (await $.fs.exists(dir + (await sep($)) + item.id + '.json')); tries++) {
     item = makeItem({ ...f, title: cleanTitle(f.title), project, sessionId, sessionName: name ?? undefined, nowMs: now, hex4: randomHex4() })
   }
   await saveItem($, item)
@@ -361,10 +392,16 @@ async function doStart($: any, item: Item, choice: StartChoice): Promise<void> {
       await copyText($, text, 'Prompt copied', 'Prompt not copied')
     } else {
       // The full prompt goes in a file; the command line carries a one-line pointer to it.
-      const file = (await ledgerDir($)) + '\\start\\' + item.id + '.md'
+      const s = await sep($)
+      const file = (await ledgerDir($)) + s + 'start' + s + item.id + '.md'
       await $.fs.write(file, text)
       const task = terminalTask(item.id, file)
       let ok = false
+      // Opening a new terminal window is wired for Windows (wt, else cmd start); elsewhere the prompt is copied.
+      if (!(await hostOf($)).win) {
+        await copyText($, text, 'Prompt copied: start claude in a new terminal and paste it', 'Prompt not copied')
+        return
+      }
       try { ok = (await $.process.run(terminalArgv(item.project, task))).exitCode === 0 } catch { ok = false }
       if (!ok) {
         try { ok = (await $.process.run(fallbackArgv(item.project, task))).exitCode === 0 } catch { ok = false }
@@ -400,8 +437,8 @@ async function deleteItem($: any, idPrefix: string): Promise<{ ok: true; title: 
   const item = found[0]
   if (item.status !== 'dropped') return { ok: false, message: 'Only dropped items can be deleted. Drop it first: ' + item.title }
   if (!/^[A-Za-z0-9_-]+$/.test(item.id)) return { ok: false, message: 'Refused: unexpected characters in id ' + item.id }
-  const path = (await itemsDir($)) + '\\' + item.id + '.json'
-  const r = await $.process.run(['cmd', '/c', 'del', '/q', path])
+  const path = (await itemsDir($)) + (await sep($)) + item.id + '.json'
+  const r = await removeFile($, path)
   if (r.exitCode !== 0 || (await $.fs.exists(path))) return { ok: false, message: 'Could not delete ' + item.title + ': ' + (r.stderr.trim() || 'file still there') }
   cache = cache.filter((i) => i.id !== item.id)
   $.ui.invalidate('ui.render')
@@ -677,7 +714,7 @@ export function register(on) {
     // Row chrome: mark and gap (2), a spare column.
     const titleCols = Math.max(16, Math.floor((cols - 3) * wide))
 
-    const projectOf = (i: Item) => i.project.split('\\').filter(Boolean).pop() ?? i.project
+    const projectOf = (i: Item) => i.project.split(/[\\/]/).filter(Boolean).pop() ?? i.project
     // Where and when, each part in its own faint tint (a mid-tone drawn dim, readable
     // on light and dark). The project is named only when the list spans projects:
     // inside one project it would be the same word on every row. Closed items show
