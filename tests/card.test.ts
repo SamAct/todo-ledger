@@ -20,7 +20,7 @@ test('an unnamed session stores no name and shows the short id', async ($, on) =
   const item = JSON.parse([...disk.values()][0])
   expect('sessionName' in item).toBe(false)
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  expect(await ui.find({ type: 'Text', text: 'sess' })).toBeDefined()
+  expect(await ui.find({ type: 'Button', text: 'sess' })).toBeDefined()
 })
 
 test('list rows wrap long titles to two lines and show project, session and age', async ($, on) => {

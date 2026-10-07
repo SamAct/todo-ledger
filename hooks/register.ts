@@ -37,6 +37,9 @@ let cwd = ''
 const ACCENT = 'suggestion'
 // Faint tints for a row's project, session and age.
 const META = { project: '#5b8fd9', session: '#a57fd6', age: '#4fa88a' }
+// The same hues at low alpha, as pill backgrounds on the desktop. A coloured area
+// behind a plain Button keeps it pressable (a Button's own text takes no colour).
+const META_BG = { project: '#5b8fd92e', session: '#a57fd62e', age: '#4fa88a2e' }
 const CLOSED_MEMORY_MS = 30 * 86_400_000
 let lastLoadAt = 0
 const REFRESH_MS = 5000
@@ -657,15 +660,26 @@ export function register(on) {
     // on light and dark). The project is named only when the list spans projects:
     // inside one project it would be the same word on every row. Closed items show
     // how long ago they closed, which is also the Done tab's order.
-    const metaLine = (i: Item) => {
+    // On the desktop each part is a pill tinted at low alpha; given `open`, the
+    // pills are buttons, so the whole row opens the card. The terminal cannot draw
+    // alpha, so there the parts stay faintly tinted text.
+    const pills = e.surface === 'desktop'
+    const metaLine = (i: Item, open?: () => void) => {
       const room = Math.max(12, titleCols - 8)
-      const tint = (text: string, color: string) => Text({ color, dimColor: true, wrap: 'truncate-end', children: [text] })
+      const part = (k: 'project' | 'session' | 'age', text: string) => {
+        if (!pills) return Text({ color: META[k], dimColor: true, wrap: 'truncate-end', children: [text] })
+        const inner = open
+          ? Button({ key: 'meta-' + k + '-' + i.id, plain: true, label: text, onPress: open })
+          : Text({ children: [text] })
+        return Box({ backgroundColor: META_BG[k], paddingX: 1, children: [inner] })
+      }
       const dot = Text({ dimColor: true, children: ['·'] })
-      const when = tint(age(now, tab === 'done' ? i.updatedAt : i.createdAt), META.age)
-      const session = tint(clip(sessionLabel(i), allProjects ? Math.floor(room / 2) : room), META.session)
-      return Box({ key: 'meta-' + i.id, flexDirection: 'row', columnGap: 1, children: allProjects
-        ? [tint(clip(projectOf(i), Math.ceil(room / 2)), META.project), dot, session, dot, when]
-        : [session, dot, when] })
+      const when = part('age', age(now, tab === 'done' ? i.updatedAt : i.createdAt))
+      const session = part('session', clip(sessionLabel(i), allProjects ? Math.floor(room / 2) : room))
+      const parts = allProjects ? [part('project', clip(projectOf(i), Math.ceil(room / 2))), session, when] : [session, when]
+      // Pills sit apart on their own; text parts need the dot between them.
+      const children = pills ? parts : parts.flatMap((x, k) => (k ? [dot, x] : [x]))
+      return Box({ key: 'meta-' + i.id, flexDirection: 'row', columnGap: 1, children })
     }
     // A started item shows ▶ in place of its group mark.
     const markOf = (i: Item, mark: string, color?: string) =>
@@ -692,7 +706,7 @@ export function register(on) {
             children: [
               Button({ key: 'title-' + i.id, plain: true, label: lines[0] ?? '', onPress: open }),
               ...(lines[1] ? [Button({ key: 'title2-' + i.id, plain: true, label: lines[1], onPress: open })] : []),
-              metaLine(i),
+              metaLine(i, open),
             ],
           }),
         ],

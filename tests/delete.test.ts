@@ -77,6 +77,6 @@ test('Done rows show how long ago the item closed, not when it was created', asy
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   await ui.press({ key: 'tab-done' })
   // The clock is 2026-10-03 12:00: closed 3h ago, created 32d ago.
-  expect(await ui.find({ type: 'Text', text: '3h' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: '32d' })).toBeUndefined()
+  expect(await ui.find({ type: 'Button', text: '3h' })).toBeDefined()
+  expect(await ui.find({ type: 'Button', text: '32d' })).toBeUndefined()
 })
