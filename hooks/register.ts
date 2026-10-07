@@ -524,6 +524,18 @@ export function register(on) {
     return next(e)
   })
 
+  // After a press redraws the pane, the desktop loses the pane's focus ring, and the
+  // next click is spent taking it back (traced 2026-10-07: one press logged per two
+  // clicks). Putting the ring on the element the next press will want keeps every
+  // click live: the open card's Close, or the row title once the card closes.
+  on('ui.press', async ($, e, next) => {
+    const r = await next(e)
+    if (e.plugin !== 'todo-ledger' || e.requestId !== PANE) return r
+    const target = expandedId ? 'close-' + expandedId : e.element.replace(/^close-/, 'title-')
+    try { await $.ui.focus({ requestId: PANE, key: target }) } catch { /* a denied move leaves focus as it was */ }
+    return r
+  })
+
   on('ui.close', async ($, e, next) => {
     if (e.id === PANE) paneOpen = false
     return next(e)
