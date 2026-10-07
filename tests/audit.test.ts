@@ -156,3 +156,29 @@ test('desktop meta parts are tinted pills that open the card; the terminal keeps
   expect(await term.find({ key: 'meta-session-' + id })).toBeUndefined()
   expect(await term.find({ type: 'Text', text: 'sess' })).toBeDefined()
 })
+
+test('scanned items keep a plain-English detail, shown in the card', async ($, on) => {
+  const { disk, clock } = setup(on, { modelText: '{"items":[{"title":"Check CLM GGUF model","kind":"deferred","detail":"The model file may not load. We parked it to finish the fix first."}]}' })
+  await start($)
+  await scanTurn($, clock, 't1')
+  const item = items(disk)[0]
+  expect(item.body).toBe('The model file may not load. We parked it to finish the fix first.')
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'title-' + item.id })
+  expect(await ui.find({ type: 'Text', text: /parked it to finish/ })).toBeDefined()
+  await ui.press({ key: 'close-' + item.id })
+  expect(await ui.find({ key: 'done-' + item.id })).toBeUndefined()
+})
+
+test('the Start choices are short and only Send carries weight', async ($, on) => {
+  const { disk } = setup(on)
+  await start($)
+  await $.tool.call({ tool: 'mcp__todo-ledger__park_item', title: 'go', kind: 'todo' })
+  const id = items(disk)[0].id
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'title-' + id })
+  await ui.press({ key: 'start-' + id })
+  expect((await ui.find({ key: 'start-send-' + id })).props.label).toBe('Send')
+  expect((await ui.find({ key: 'start-draft-' + id })).props.plain).toBe(true)
+  expect((await ui.find({ key: 'start-copy-' + id })).props.label).toBe('Copy')
+})

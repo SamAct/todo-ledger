@@ -8,12 +8,12 @@ export interface StartOption { value: StartChoice; label: string; hotkey: string
 // The first is the main one. Terminals can open a new window; the desktop copies instead.
 export function startOptions(surface: 'terminal' | 'desktop'): StartOption[] {
   const common: StartOption[] = [
-    { value: 'send', label: 'Send now', hotkey: 's' },
-    { value: 'draft', label: 'Draft in prompt', hotkey: 'd' },
+    { value: 'send', label: 'Send', hotkey: 's' },
+    { value: 'draft', label: 'Draft', hotkey: 'd' },
   ]
   return surface === 'terminal'
-    ? [...common, { value: 'terminal', label: 'New terminal', hotkey: 't' }]
-    : [...common, { value: 'copy', label: 'Copy prompt', hotkey: 'c' }]
+    ? [...common, { value: 'terminal', label: 'Terminal', hotkey: 't' }]
+    : [...common, { value: 'copy', label: 'Copy', hotkey: 'c' }]
 }
 
 export function startPrompt(item: Item, cwd: string): string {

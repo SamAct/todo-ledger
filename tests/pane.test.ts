@@ -81,7 +81,7 @@ test('actions appear only once an item is selected, on every surface', async ($,
     expect(await ui.find({ key: 'start-' + id })).toBeUndefined()
     await ui.press({ key: 'title-' + id })
     expect(await ui.find({ key: 'start-' + id })).toBeDefined()
-    await ui.press({ key: 'title-' + id })
+    await ui.press({ key: 'close-' + id })
     expect(await ui.find({ key: 'start-' + id })).toBeUndefined()
     await ui.unmount()
   }

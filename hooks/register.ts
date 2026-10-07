@@ -19,6 +19,9 @@ let replying = false
 let lastUserText = ''
 let deletingId: string | null = null
 const STATUS_VALUES = ['open', 'in_progress', 'done', 'dropped']
+// What the card shows under an item's title, asked of every agent that adds one.
+const DETAIL_HINT = 'Optional but recommended: 2 to 4 short sentences in plain English, no jargon: what this task is ' +
+  'and why it is proposed or parked. Shown to the user in the item\'s card.'
 
 const PANE = 'todo-ledger'
 // The dock width asked for on open; a width the person dragged wins (the engine has no minimum).
@@ -269,7 +272,7 @@ async function runScan($: any, answer: string, userText: string): Promise<void> 
       model: 'haiku',
       system: SCAN_SYSTEM,
       prompt: buildScanPrompt(answer, open.map((i) => ({ id: i.id, title: i.title, kind: i.kind })), userText),
-      maxTokens: 700,
+      maxTokens: 1200,
       timeoutMs: 20000,
     })
     if (!r.isAnswered) { $.ui.log('scan skipped: ' + r.reason); return }
@@ -280,7 +283,7 @@ async function runScan($: any, answer: string, userText: string): Promise<void> 
       const item = open.find((i) => i.id === u.id)
       if (item) await applyUpdate($, item, u)
     }
-    for (const f of found) await capture($, { title: f.title, kind: f.kind, origin: 'agent', source: 'scan' })
+    for (const f of found) await capture($, { title: f.title, kind: f.kind, origin: 'agent', source: 'scan', body: f.detail })
   } catch (err: any) {
     $.ui.log('scan skipped: ' + err.message)
   }
@@ -378,7 +381,7 @@ function startChooser($: any, e: any, item: Item) {
   return [
     ...startOptions(e.surface === 'desktop' ? 'desktop' : 'terminal').map((o, k) =>
       Button({ key: 'start-' + o.value + '-' + item.id, label: o.label, hotkey: o.hotkey,
-        ...(k === 0 ? { variant: 'primary' as const, autoFocus: true as const } : {}),
+        ...(k === 0 ? { variant: 'primary' as const, autoFocus: true as const } : { plain: true as const }),
         onPress: async () => { startingId = null; await doStart($, item, o.value as StartChoice); redraw() } })),
     Button({ key: 'start-cancel-' + item.id, label: 'Cancel', plain: true, dimColor: true, onPress: () => { startingId = null; redraw() } }),
   ]
@@ -470,7 +473,7 @@ export function register(on) {
         properties: {
           title: { type: 'string' },
           kind: { type: 'string', enum: ['todo', 'deferred', 'proposal', 'discussion'] },
-          body: { type: 'string' },
+          body: { type: 'string', description: DETAIL_HINT },
         },
         required: ['title', 'kind'],
       },
@@ -503,7 +506,7 @@ export function register(on) {
           status: { type: 'string', enum: STATUS_VALUES },
           title: { type: 'string' },
           kind: { type: 'string', enum: ['todo', 'deferred', 'proposal', 'discussion'] },
-          body: { type: 'string', description: 'Replaces the item\'s details' },
+          body: { type: 'string', description: 'Replaces the item\'s details. ' + DETAIL_HINT },
           note: { type: 'string', description: 'Appended to the notes thread' },
         },
         required: ['id'],
@@ -755,7 +758,7 @@ export function register(on) {
                   metaLine(i),
                 ],
               }),
-              Button({ key: 'title-' + i.id, plain: true, dimColor: true, label: '✕', onPress: () => select(null) }),
+              Button({ key: 'close-' + i.id, plain: true, dimColor: true, label: '✕', onPress: () => select(null) }),
             ],
           }),
           ...(i.body ? [Box({ marginTop: 1, children: [Text({ wrap: 'wrap', children: [i.body] })] })] : []),
@@ -773,8 +776,8 @@ export function register(on) {
               })]
             : []),
           ...(noting
-            ? [Box({ marginTop: 1, children: [
-                Input({ key: 'note-input-' + i.id, value: '', placeholder: 'Note…', submitLabel: 'add', autoFocus: true,
+            ? [Box({ marginTop: 1, width: '100%', minHeight: 3, borderStyle: 'round', borderDimColor: true, paddingX: 1, children: [
+                Input({ key: 'note-input-' + i.id, value: '', placeholder: 'Write a note, then press Enter', submitLabel: 'add', autoFocus: true,
                   onSubmit: async (v: string) => { notingId = null; await addNote($, i.id, v); redraw() } }),
               ] })]
             : []),

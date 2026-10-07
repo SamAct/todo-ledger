@@ -8,7 +8,9 @@ export const SCAN_SYSTEM =
   '2. updates: KNOWN items this turn changed. "approve": the USER agreed to a proposal. "reject": the USER declined it. ' +
   '"done": the REPLY shows its work was completed. "duplicate": it is the same thing as another KNOWN item (give "of": that id). ' +
   'Use only ids from KNOWN. Only when the USER message or the REPLY says so clearly; when unsure, leave it out.\n' +
-  'Reply with JSON only: {"items":[{"title":"one line","kind":"todo|deferred|proposal"}],' +
+  'Give each item a "detail": 2 to 4 short sentences in plain English, no jargon, saying what the task is and why it ' +
+  'was deferred or proposed.\n' +
+  'Reply with JSON only: {"items":[{"title":"one line","kind":"todo|deferred|proposal","detail":"..."}],' +
   '"updates":[{"id":"…","action":"approve|reject|done|duplicate","of":"…"}]}. Use empty arrays when there is nothing.'
 
 export function shouldScan(answer: unknown, parked: boolean): boolean {
@@ -47,7 +49,7 @@ export function parseScanUpdates(text: string, knownIds: string[]): ScanUpdate[]
   return out
 }
 
-export function parseScanReply(text: string): { title: string; kind: ScanKind }[] | null {
+export function parseScanReply(text: string): { title: string; kind: ScanKind; detail?: string }[] | null {
   const start = text.indexOf('{')
   const end = text.lastIndexOf('}')
   if (start < 0 || end <= start) return null
@@ -56,5 +58,6 @@ export function parseScanReply(text: string): { title: string; kind: ScanKind }[
   if (!v || !Array.isArray(v.items)) return null
   return v.items
     .filter((i: any) => i && typeof i.title === 'string' && i.title.trim() && SCAN_KINDS.includes(i.kind))
-    .map((i: any) => ({ title: i.title.trim(), kind: i.kind }))
+    .map((i: any) => ({ title: i.title.trim(), kind: i.kind,
+      ...(typeof i.detail === 'string' && i.detail.trim() ? { detail: i.detail.trim().slice(0, 600) } : {}) }))
 }
