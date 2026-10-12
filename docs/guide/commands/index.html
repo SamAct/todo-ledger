@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Commands and tools · todo-ledger docs</title>
+<meta name="description" content="Every slash command, and the four tools Claude uses to keep the todo-ledger list current.">
+<link rel="canonical" href="https://samact.github.io/todo-ledger/guide/commands/">
+<meta name="theme-color" content="#14141d">
+<meta name="color-scheme" content="dark">
+<link rel="apple-touch-icon" href="../../assets/apple-touch-icon.png">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="todo-ledger">
+<meta property="og:title" content="Commands and tools · todo-ledger docs">
+<meta property="og:description" content="Every slash command, and the four tools Claude uses to keep the todo-ledger list current.">
+<meta property="og:url" content="https://samact.github.io/todo-ledger/guide/commands/">
+<meta property="og:image" content="https://samact.github.io/todo-ledger/assets/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="../../assets/favicon.svg" type="image/svg+xml">
+<link rel="preload" href="../../assets/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../../assets/site.css">
+<link rel="stylesheet" href="../../assets/replica.css">
+<script>document.documentElement.classList.add('js')</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="nav">
+  <div class="wrap nav-in">
+    <a class="brand" href="../../" aria-label="todo-ledger home">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#a3a5f6"/><path d="M9 7.6l2.9 2.9L9 13.4 6.1 10.5z" fill="#1c1a3a"/><rect x="15" y="9" width="11" height="3" rx="1.5" fill="#1c1a3a"/><circle cx="9" cy="17" r="1.9" fill="#1c1a3a"/><rect x="15" y="15.5" width="8" height="3" rx="1.5" fill="#1c1a3a"/><circle cx="9" cy="23.5" r="1.9" fill="#1c1a3a"/><rect x="15" y="22" width="10" height="3" rx="1.5" fill="#1c1a3a"/></svg>
+      todo-ledger
+    </a>
+    <nav class="nav-links" aria-label="Main">
+      <a class="hide-s" href="../../#how">Features</a>
+      <a class="hide-s" href="../../#install">Install</a>
+      <a href="../../guide/" aria-current="page">Docs</a>
+      <a class="nav-gh" href="https://github.com/SamAct/todo-ledger">
+        <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub
+      </a>
+    </nav>
+  </div>
+</header>
+<main id="main" class="wrap doc">
+  <aside class="doc-nav" aria-label="Docs">
+    <div><h4>Docs</h4><ul><li><a href="../../guide/">Get started</a></li><li><a href="../../guide/sidebar/">The sidebar</a></li><li><a href="../../guide/commands/" aria-current="page">Commands and tools</a></li><li><a href="../../guide/how-it-works/">How it works</a></li><li><a href="../../guide/faq/">FAQ and troubleshooting</a></li></ul></div>
+    <div><h4>Project</h4><ul><li><a href="https://github.com/SamAct/todo-ledger">Source on GitHub</a></li><li><a href="https://github.com/SamAct/todo-ledger/issues">Issues</a></li></ul></div>
+  </aside>
+  <article class="prose">
+
+    <h1>Commands and tools</h1>
+    <p class="lead">Two slash commands for you, four tools for Claude.</p>
+
+    <h2 id="commands">Slash commands</h2>
+    <div class="tablewrap"><table>
+      <tr><th>Command</th><th>Does</th></tr>
+      <tr><td><code>/todos</code></td><td>Opens or closes the sidebar.</td></tr>
+      <tr><td><code>/todos list</code></td><td>Prints this project’s open items in the chat.</td></tr>
+      <tr><td><code>/todos list all</code></td><td>Prints open items from every project.</td></tr>
+      <tr><td><code>/todos refresh</code></td><td>Reloads items written by other sessions right now.</td></tr>
+      <tr><td><code>/todo add &lt;text&gt;</code></td><td>Adds a to do.</td></tr>
+      <tr><td><code>/todo add -d &lt;text&gt;</code></td><td>Adds a parked (deferred) item.</td></tr>
+      <tr><td><code>/todo add -p &lt;text&gt;</code></td><td>Adds a proposal.</td></tr>
+      <tr><td><code>/todo add -n &lt;text&gt;</code></td><td>Adds a discussion.</td></tr>
+      <tr><td><code>/todo done &lt;id&gt;</code></td><td>Marks an item done.</td></tr>
+      <tr><td><code>/todo delete &lt;id&gt;</code></td><td>Deletes a dropped item for good.</td></tr>
+    </table></div>
+    <p class="note">Ids look like <code>20261012-0951-3c1f</code>. <code>/todos list</code> prints them.</p>
+
+    <h2 id="tools">Tools Claude uses</h2>
+    <p>These are registered with Claude Code, so Claude can call them on its own. Their descriptions tell it to keep the list current without being asked.</p>
+    <div class="tablewrap"><table>
+      <tr><th>Tool</th><th>Inputs</th><th>Does</th></tr>
+      <tr><td><code>park_item</code></td><td><code>title</code>, <code>kind</code>, <code>body</code></td><td>Records an item. <code>kind</code> is <code>todo</code>, <code>deferred</code>, <code>proposal</code> or <code>discussion</code>. <code>body</code> is the two to four plain sentences shown on the card.</td></tr>
+      <tr><td><code>list_items</code></td><td><code>scope</code></td><td>Lists open items. <code>scope</code> is <code>project</code> (default) or <code>all</code>.</td></tr>
+      <tr><td><code>get_item</code></td><td><code>id</code></td><td>Reads one item in full, with its notes. A unique prefix of the id works.</td></tr>
+      <tr><td><code>update_item</code></td><td><code>id</code>, <code>status</code>, <code>title</code>, <code>kind</code>, <code>body</code>, <code>note</code></td><td>Changes an item. <code>status</code> is <code>open</code>, <code>in_progress</code>, <code>done</code> or <code>dropped</code>.</td></tr>
+    </table></div>
+    <p>Agents can set an item to <code>dropped</code>, which moves it to Done and can be reopened. They cannot delete. Only you can, from the Done tab or with <code>/todo delete</code>.</p>
+
+    <nav class="pager" aria-label="Pages">
+      <a href="../../guide/sidebar/"><small>Previous</small>The sidebar</a>
+      <a href="../../guide/how-it-works/"><small>Next</small>How it works</a>
+    </nav>
+  </article>
+</main>
+<footer class="foot">
+  <div class="wrap">
+    <p class="fine" style="margin:0;max-width:70ch">todo-ledger is an independent project, not affiliated with or endorsed by Anthropic. Claude and Claude Code are trademarks of Anthropic. MIT license. <a href="https://github.com/SamAct/todo-ledger/edit/main/docs/guide/commands/index.html">Edit this page on GitHub</a>.</p>
+  </div>
+</footer>
+<script src="../../assets/replica.js" defer></script>
+<script src="../../assets/site.js" defer></script>
+</body>
+</html>

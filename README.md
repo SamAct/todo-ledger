@@ -1,4 +1,4 @@
-# todo-ledger
+﻿# todo-ledger
 
 A Claude Code mod that keeps one global ledger of the work you and Claude leave behind: todos, parked or deferred items, proposals and discussions, from every project and session. It lives in a **ToDo's** sidebar in the desktop app and the terminal.
 
@@ -7,7 +7,9 @@ A Claude Code mod that keeps one global ledger of the work you and Claude leave 
 - You add your own with `/todo add`.
 - Pick an item and **Send** it to Claude, **Draft** it into the prompt, or copy it for another session.
 
-Works on Windows, macOS and Linux. Requires Claude Code **v2.1.287 or later** (mods support).
+Tested on Windows; macOS and Linux are ported and unit-tested but not yet run on real machines. Requires Claude Code **v2.1.287 or later** (mods support).
+
+**Website and docs: https://samact.github.io/todo-ledger/** (a live copy of the sidebar you can click through, plus the full command and tool reference).
 
 ## Install
 

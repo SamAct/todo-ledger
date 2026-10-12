@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FAQ and troubleshooting · todo-ledger docs</title>
+<meta name="description" content="Answers to common questions about todo-ledger, and fixes for the button not appearing or the sidebar not drawing.">
+<link rel="canonical" href="https://samact.github.io/todo-ledger/guide/faq/">
+<meta name="theme-color" content="#14141d">
+<meta name="color-scheme" content="dark">
+<link rel="apple-touch-icon" href="../../assets/apple-touch-icon.png">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="todo-ledger">
+<meta property="og:title" content="FAQ and troubleshooting · todo-ledger docs">
+<meta property="og:description" content="Answers to common questions about todo-ledger, and fixes for the button not appearing or the sidebar not drawing.">
+<meta property="og:url" content="https://samact.github.io/todo-ledger/guide/faq/">
+<meta property="og:image" content="https://samact.github.io/todo-ledger/assets/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="../../assets/favicon.svg" type="image/svg+xml">
+<link rel="preload" href="../../assets/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../../assets/site.css">
+<link rel="stylesheet" href="../../assets/replica.css">
+<script>document.documentElement.classList.add('js')</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="nav">
+  <div class="wrap nav-in">
+    <a class="brand" href="../../" aria-label="todo-ledger home">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#a3a5f6"/><path d="M9 7.6l2.9 2.9L9 13.4 6.1 10.5z" fill="#1c1a3a"/><rect x="15" y="9" width="11" height="3" rx="1.5" fill="#1c1a3a"/><circle cx="9" cy="17" r="1.9" fill="#1c1a3a"/><rect x="15" y="15.5" width="8" height="3" rx="1.5" fill="#1c1a3a"/><circle cx="9" cy="23.5" r="1.9" fill="#1c1a3a"/><rect x="15" y="22" width="10" height="3" rx="1.5" fill="#1c1a3a"/></svg>
+      todo-ledger
+    </a>
+    <nav class="nav-links" aria-label="Main">
+      <a class="hide-s" href="../../#how">Features</a>
+      <a class="hide-s" href="../../#install">Install</a>
+      <a href="../../guide/" aria-current="page">Docs</a>
+      <a class="nav-gh" href="https://github.com/SamAct/todo-ledger">
+        <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub
+      </a>
+    </nav>
+  </div>
+</header>
+<main id="main" class="wrap doc">
+  <aside class="doc-nav" aria-label="Docs">
+    <div><h4>Docs</h4><ul><li><a href="../../guide/">Get started</a></li><li><a href="../../guide/sidebar/">The sidebar</a></li><li><a href="../../guide/commands/">Commands and tools</a></li><li><a href="../../guide/how-it-works/">How it works</a></li><li><a href="../../guide/faq/" aria-current="page">FAQ and troubleshooting</a></li></ul></div>
+    <div><h4>Project</h4><ul><li><a href="https://github.com/SamAct/todo-ledger">Source on GitHub</a></li><li><a href="https://github.com/SamAct/todo-ledger/issues">Issues</a></li></ul></div>
+  </aside>
+  <article class="prose">
+
+    <h1>FAQ and troubleshooting</h1>
+    <p class="lead">Quick answers, then fixes.</p>
+
+    <h2 id="faq">Questions</h2>
+    <h3>How is this different from Claude’s own to-do list?</h3>
+    <p>That list is a scratchpad for the task in front of Claude and goes with the session. todo-ledger is permanent, spans every project, and holds what never made it onto a plan: the “we could also…” and the “not now”. It also mirrors those task lists, so unfinished plans are kept.</p>
+    <h3>Does it work in the desktop app and the terminal?</h3>
+    <p>Both, with the same list and files. Start offers Copy in the desktop app and Terminal in the terminal app.</p>
+    <h3>Does it work on macOS and Linux?</h3>
+    <p>Ported and unit-tested, but not yet run on real macOS or Linux machines. Windows is the tested platform. If you try it elsewhere, <a href="https://github.com/SamAct/todo-ledger/issues/new">open an issue</a> either way.</p>
+    <h3>How do I remove it?</h3>
+    <p><code>/plugin uninstall todo-ledger@todo-ledger</code>. Your items stay in the folder until you delete it.</p>
+    <h3>Is it an official Anthropic project?</h3>
+    <p>No. It is an independent open-source mod by <a href="https://github.com/SamAct">SamAct</a>.</p>
+
+    <h2 id="fix">Troubleshooting</h2>
+    <h3>The ToDo’s button does not appear</h3>
+    <ol>
+      <li>Run <code>claude --version</code>. Mods need <strong>2.1.287 or later</strong>. Update Claude Code if it is older, and update the desktop app too.</li>
+      <li>Start a new session, or run <code>/reload-plugins</code>.</li>
+      <li>Run <code>/plugin</code> and check that <code>todo-ledger</code> is installed and enabled.</li>
+    </ol>
+    <h3>The sidebar is blank, or says it could not draw</h3>
+    <p>Close it and open it again with <code>/todos</code>. If it persists, run <code>/reload-plugins</code> and <a href="https://github.com/SamAct/todo-ledger/issues/new">open an issue</a> with the message shown.</p>
+    <h3>Items from another session do not show up</h3>
+    <p>Sidebars refresh about every ten seconds. Type <code>/todos refresh</code> to reload now.</p>
+    <h3>In the desktop app, the first click does nothing</h3>
+    <p>After typing in the chat, the first click on the sidebar may only move focus into it. Click again. Opening the sidebar on hover is not possible with the current mod API.</p>
+    <h3>I deleted something by mistake</h3>
+    <p>Drop only moves an item to Done, and Reopen restores it. Only <em>Delete forever</em> removes a file, and only for dropped items, after a confirm.</p>
+
+    <nav class="pager" aria-label="Pages">
+      <a href="../../guide/how-it-works/"><small>Previous</small>How it works</a>
+      
+    </nav>
+  </article>
+</main>
+<footer class="foot">
+  <div class="wrap">
+    <p class="fine" style="margin:0;max-width:70ch">todo-ledger is an independent project, not affiliated with or endorsed by Anthropic. Claude and Claude Code are trademarks of Anthropic. MIT license. <a href="https://github.com/SamAct/todo-ledger/edit/main/docs/guide/faq/index.html">Edit this page on GitHub</a>.</p>
+  </div>
+</footer>
+<script src="../../assets/replica.js" defer></script>
+<script src="../../assets/site.js" defer></script>
+</body>
+</html>

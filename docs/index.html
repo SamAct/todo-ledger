@@ -1,0 +1,279 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>todo-ledger: a ToDo's sidebar for Claude Code</title>
+<meta name="description" content="Keep every “later” Claude says. todo-ledger gathers deferred work, proposals and open questions from every Claude Code session into one sidebar. Free, open source, private.">
+<link rel="canonical" href="https://samact.github.io/todo-ledger/">
+<meta name="theme-color" content="#14141d">
+<meta name="color-scheme" content="dark">
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="todo-ledger">
+<meta property="og:title" content="todo-ledger: a ToDo's sidebar for Claude Code">
+<meta property="og:description" content="Keep every “later” Claude says. One list for the deferred work, proposals and open questions from every session. Free, open source, private.">
+<meta property="og:url" content="https://samact.github.io/todo-ledger/">
+<meta property="og:image" content="https://samact.github.io/todo-ledger/assets/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The todo-ledger sidebar listing parked work, proposals and to-dos next to a Claude Code chat">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="todo-ledger: a ToDo's sidebar for Claude Code">
+<meta name="twitter:description" content="Everything Claude defers, proposes or leaves open, across all your projects, in one list. Free and open source.">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="preload" href="assets/fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="assets/site.css">
+<link rel="stylesheet" href="assets/replica.css">
+<script>document.documentElement.classList.add('js')</script>
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"SoftwareApplication","name":"todo-ledger","applicationCategory":"DeveloperApplication","operatingSystem":"Windows, macOS, Linux","description":"A Claude Code mod that keeps one global ledger of deferred work, proposals and open questions in a ToDo's sidebar.","url":"https://samact.github.io/todo-ledger/","downloadUrl":"https://github.com/SamAct/todo-ledger","codeRepository":"https://github.com/SamAct/todo-ledger","license":"https://opensource.org/license/mit","softwareVersion":"1.0.0","author":{"@type":"Person","name":"SamAct","url":"https://github.com/SamAct"},"offers":{"@type":"Offer","price":"0","priceCurrency":"USD"}}
+</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav">
+  <div class="wrap nav-in">
+    <a class="brand" href="./" aria-label="todo-ledger home">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#a3a5f6"/><path d="M9 7.6l2.9 2.9L9 13.4 6.1 10.5z" fill="#1c1a3a"/><rect x="15" y="9" width="11" height="3" rx="1.5" fill="#1c1a3a"/><circle cx="9" cy="17" r="1.9" fill="#1c1a3a"/><rect x="15" y="15.5" width="8" height="3" rx="1.5" fill="#1c1a3a"/><circle cx="9" cy="23.5" r="1.9" fill="#1c1a3a"/><rect x="15" y="22" width="10" height="3" rx="1.5" fill="#1c1a3a"/></svg>
+      todo-ledger
+    </a>
+    <nav class="nav-links" aria-label="Main">
+      <a class="hide-s" href="#how">Features</a>
+      <a class="hide-s" href="#install">Install</a>
+      <a href="guide/">Docs</a>
+      <a class="nav-gh" href="https://github.com/SamAct/todo-ledger">
+        <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub
+      </a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+
+<section class="hero">
+  <div class="wrap hero-grid">
+    <div>
+      <div class="badges" aria-label="Project facts">
+        <a class="badge" href="https://github.com/SamAct/todo-ledger/releases">v1.0.0</a>
+        <span class="badge">MIT</span>
+        <span class="badge">Tested on Windows · macOS and Linux ported</span>
+      </div>
+      <h1>Keep every <em>“later”</em> Claude says.</h1>
+      <p class="lead">A ToDo’s sidebar for Claude Code. Everything Claude defers, proposes or leaves open, across all your projects, in one list.</p>
+      <div class="hero-cta">
+        <div class="cmd-stack">
+          <div class="cmd"><code data-copy="/plugin marketplace add SamAct/todo-ledger"><b>&gt;</b>/plugin marketplace add SamAct/todo-ledger</code><button type="button" aria-label="Copy command 1">Copy</button></div>
+          <div class="cmd"><code data-copy="/plugin install todo-ledger@todo-ledger"><b>&gt;</b>/plugin install todo-ledger@todo-ledger</code><button type="button" aria-label="Copy command 2">Copy</button></div>
+        </div>
+        <div class="hero-links">
+          <a href="guide/">Read the docs</a>
+          <a href="https://github.com/SamAct/todo-ledger">View source</a>
+        </div>
+        <p class="hero-note">Free and open source. Needs Claude Code 2.1.287 or later.</p>
+      </div>
+    </div>
+    <div>
+      <div data-replica="full" data-story></div>
+      <noscript><p class="note">The live preview needs JavaScript. The docs show every screen in text.</p></noscript>
+      <p class="lr-replay">This is a working copy of the sidebar. Click around. <button type="button" data-replay>Replay the intro</button></p>
+    </div>
+  </div>
+</section>
+
+<section id="how" class="sec">
+  <div class="wrap split">
+    <div class="split-head rv">
+      <div class="eyebrow"><i>01</i> How it fills</div>
+      <h2 class="big">Claude writes it down. So can you.</h2>
+      <p class="lead">Nothing to remember to do. Items arrive three ways, and each one lands in the same list.</p>
+    </div>
+    <div class="rows">
+      <div class="row rv">
+        <div class="n">By Claude</div>
+        <div>
+          <h3>Claude parks it as it goes</h3>
+          <p>When Claude defers, postpones or proposes something you did not ask for, it records it on the spot, with two to four plain sentences on what the work is and why.</p>
+<pre class="block"><span class="k">park_item</span> {
+  kind:  <span class="s">"deferred"</span>,
+  title: <span class="s">"Retry failed webhook deliveries"</span>,
+  body:  <span class="s">"Failed deliveries are dropped today, so a
+          missed payment update never arrives…"</span>
+}</pre>
+        </div>
+      </div>
+      <div class="row rv">
+        <div class="n">By the scan</div>
+        <div>
+          <h3>A quick scan catches what slipped</h3>
+          <p>After a long reply where Claude parked nothing, a short Haiku pass reads it for deferrals that went unrecorded. It also closes items the conversation just settled: approved, rejected, finished or duplicated, each with a note saying why.</p>
+<pre class="block"><span class="c">note ·</span> done (seen by the end-of-turn scan)
+<span class="c">note ·</span> rejected by the user (seen by the end-of-turn scan)</pre>
+        </div>
+      </div>
+      <div class="row rv">
+        <div class="n">By you</div>
+        <div>
+          <h3>You add your own</h3>
+          <p>One line, from any session. Flags choose the kind: <code>-d</code> parked, <code>-p</code> proposal, <code>-n</code> discussion. Without one it is a to do.</p>
+<pre class="block"><span class="c">&gt;</span> /todo add -p Move invoice emails to a background queue
+<span class="c">&gt;</span> /todo add Rotate the staging API key</pre>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="loop" class="sec" style="padding-top:0">
+  <div class="wrap loop">
+    <div class="rv">
+      <div class="eyebrow"><i>02</i> Closing the loop</div>
+      <h2 class="big">Start from the card, not from scratch.</h2>
+      <p class="lead">Open an item and press Start. The prompt is already written, with the title, the details, your notes and the project it came from.</p>
+      <ul class="choice-notes">
+        <li><b>Send</b> puts it in front of Claude now. If a reply is running it queues.</li>
+        <li><b>Draft</b> leaves it in your prompt box to edit first.</li>
+        <li><b>Copy</b> hands it to another session. In the terminal app, <b>Terminal</b> opens a fresh Claude in the project folder on Windows and copies the prompt elsewhere.</li>
+      </ul>
+      <div class="prompt-out" style="margin-top:2rem" aria-label="Example of the prompt that Start writes">
+        <header><span>What Claude receives</span><span>billing-api</span></header>
+<pre>Work on this ledger item (id 20261012-0951-3c1f, deferred, from project billing-api):
+Retry failed webhook deliveries
+Failed webhook deliveries are dropped today, so a missed payment update never arrives. Retrying a few times would fix that. Left out so this fix stays small.
+<span class="d">When finished, call update_item with id 20261012-0951-3c1f and status done.</span></pre>
+      </div>
+    </div>
+    <div class="rv">
+      <div data-replica="pane" data-open="20261012-0951-3c1f" data-starting style="margin-inline:auto"></div>
+      <p class="lr-replay" style="text-align:center">Try Send, Draft or Copy.</p>
+    </div>
+  </div>
+</section>
+
+<section id="long" class="sec" style="padding-top:0">
+  <div class="wrap">
+    <div class="rv" style="margin-bottom:2.5rem">
+      <div class="eyebrow"><i>03</i> Made for a long list</div>
+      <h2 class="big">Small decisions that matter by item forty.</h2>
+    </div>
+    <dl class="spec rv">
+      <div><dt>One list, every project</dt><dd>Opens on the current project. One click widens it to everything. Each item keeps the project and session it came from, and sessions open side by side stay in sync within about ten seconds.</dd></div>
+      <div><dt>Decisions come first</dt><dd>Proposals sit at the top under “Needs decision”, then to dos, discussion and parked work. Approve or Reject in one press.</dd></div>
+      <div><dt>Nothing is lost by accident</dt><dd>Drop and Reject move an item to Done, where Reopen brings it back. Only dropped items can be deleted for good, in two steps. Agents cannot delete at all.</dd></div>
+      <div><dt>Quiet about repeats</dt><dd>The same thing mentioned twice stays one item. A task you closed in the last 30 days is not re-added by the scan.</dd></div>
+      <div><dt>Desktop and terminal</dt><dd>The same list in the Claude desktop app and in the CLI. In an open card, <kbd>s</kbd> start, <kbd>d</kbd> done, <kbd>x</kbd> drop, <kbd>n</kbd> note, <kbd>a</kbd> approve.</dd></div>
+      <div><dt>Sees Claude’s own plans</dt><dd>Task lists Claude writes with TodoWrite are mirrored, so a plan that never got finished is still on the books.</dd></div>    </dl>
+  </div>
+</section>
+
+<section id="privacy" class="sec" style="padding-top:0">
+  <div class="wrap">
+    <div class="priv rv">
+      <div>
+        <div class="eyebrow"><i>04</i> Private by construction</div>
+        <h2 class="big">Your list stays on your machine.</h2>
+        <p class="lead">Every item is a plain JSON file in one folder. No account, no server, no telemetry. The one thing that leaves is the end-of-turn scan, which asks Claude Haiku through your own Claude Code session, on your existing sign-in.</p>
+      </div>
+      <div class="files" role="img" aria-label="Example listing of the items folder">
+        <div class="p">~/.claude/todo-ledger/items/</div>
+        <div class="f"><span>20261012-0951-3c1f.json</span><span>1.1 KB</span></div>
+        <div class="f"><span>20261012-0908-a41e.json</span><span>1.4 KB</span></div>
+        <div class="f"><span>20261012-0731-77b2.json</span><span>0.9 KB</span></div>
+        <div class="f"><span>20261011-1120-b83d.json</span><span>1.0 KB</span></div>
+        <div class="f"><span>…</span><span>one file per item</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="install" class="sec" style="padding-top:0">
+  <div class="wrap install">
+    <div class="rv">
+      <div class="eyebrow"><i>05</i> Install</div>
+      <h2 class="big">Two commands, then a new session.</h2>
+      <p class="lead">Installs from this repository through Claude Code’s own plugin system. No build, no config file, no key.</p>
+      <div class="req">
+        <span class="badge">Claude Code 2.1.287+</span>
+        <span class="badge">Desktop app or CLI</span>
+        <span class="badge">Tested on Windows · macOS and Linux ported</span>
+      </div>
+    </div>
+    <div class="steps rv">
+      <div class="step"><div>
+        <p><b>Add the marketplace.</b></p>
+        <div class="cmd"><code data-copy="/plugin marketplace add SamAct/todo-ledger"><b>&gt;</b>/plugin marketplace add SamAct/todo-ledger</code><button type="button" aria-label="Copy step 1 command">Copy</button></div>
+      </div></div>
+      <div class="step"><div>
+        <p><b>Install the plugin.</b></p>
+        <div class="cmd"><code data-copy="/plugin install todo-ledger@todo-ledger"><b>&gt;</b>/plugin install todo-ledger@todo-ledger</code><button type="button" aria-label="Copy step 2 command">Copy</button></div>
+      </div></div>
+      <div class="step"><div>
+        <p><b>Start a new session</b>, or run <code>/reload-plugins</code>. A <b>ToDo’s</b> button appears at the right of the prompt footer. Press it, or type <code>/todos</code>.</p>
+      </div></div>
+    </div>
+  </div>
+</section>
+
+<section id="faq" class="sec" style="padding-top:0">
+  <div class="wrap">
+    <div class="rv" style="margin-bottom:2rem">
+      <div class="eyebrow"><i>06</i> Questions</div>
+      <h2 class="big">Before you install.</h2>
+    </div>
+    <div class="faq rv">
+      <details><summary>Does anything leave my machine?</summary><div><p>Items never do. The only network use is the end-of-turn scan: after a long reply it sends that reply to Claude Haiku through your own Claude Code session, the same way any request in that session goes. There is no analytics and no server of ours.</p></div></details>
+      <details><summary>Does the scan use my Claude usage?</summary><div><p>Yes, a small amount: one short Haiku request after replies of 400 characters or more where Claude parked nothing. There is no setting to switch it off yet. You can disable the whole plugin with <code>/plugin disable todo-ledger@todo-ledger</code>.</p></div></details>
+      <details><summary>How is this different from Claude’s own to-do list?</summary><div><p>That list is a scratchpad for the task in front of Claude and goes with the session. todo-ledger is permanent, spans every project, and holds the things that never made it onto a plan: the “we could also…” and the “not now”.</p></div></details>
+      <details><summary>Does it work in the terminal and the desktop app?</summary><div><p>Both. The sidebar draws in each, with the same list and the same files. macOS and Linux support is ported and unit-tested but has not yet run on real machines; Windows is the tested platform. Mods need Claude Code 2.1.287 or later; update first if the button does not appear.</p></div></details>
+      <details><summary>How do I remove it?</summary><div><p><code>/plugin uninstall todo-ledger@todo-ledger</code>. Your items stay in <code>~/.claude/todo-ledger/items/</code> until you delete that folder.</p></div></details>
+      <details><summary>Is this an official Anthropic project?</summary><div><p>No. It is an independent, open-source mod by <a href="https://github.com/SamAct">SamAct</a>, built on Claude Code’s mod support. Claude and Claude Code are trademarks of Anthropic.</p></div></details>
+    </div>
+    <div class="cta rv">
+      <div>
+        <h3>Tried it? Tell me what broke.</h3>
+        <p>macOS and Linux are ported and unit-tested but have not run on real machines yet, so reports from there are the most useful. A star helps others find it.</p>
+      </div>
+      <div class="cta-b">
+        <a class="btn btn-primary" href="https://github.com/SamAct/todo-ledger">Star on GitHub</a>
+        <a class="btn" href="https://github.com/SamAct/todo-ledger/issues/new">Open an issue</a>
+        <a class="btn" href="https://github.com/SamAct/todo-ledger/releases">Releases</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-grid">
+    <div>
+      <a class="brand" href="./"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#a3a5f6"/><path d="M9 7.6l2.9 2.9L9 13.4 6.1 10.5z" fill="#1c1a3a"/><rect x="15" y="9" width="11" height="3" rx="1.5" fill="#1c1a3a"/><circle cx="9" cy="17" r="1.9" fill="#1c1a3a"/><rect x="15" y="15.5" width="8" height="3" rx="1.5" fill="#1c1a3a"/><circle cx="9" cy="23.5" r="1.9" fill="#1c1a3a"/><rect x="15" y="22" width="10" height="3" rx="1.5" fill="#1c1a3a"/></svg>todo-ledger</a>
+      <p class="fine">An independent project, not affiliated with or endorsed by Anthropic. Claude and Claude Code are trademarks of Anthropic. Released under the MIT license. Fonts: Geist, SIL Open Font License.</p>
+    </div>
+    <div>
+      <h4>Docs</h4>
+      <ul>
+        <li><a href="guide/">Get started</a></li>
+        <li><a href="guide/sidebar/">The sidebar</a></li>
+        <li><a href="guide/commands/">Commands and tools</a></li>
+        <li><a href="guide/how-it-works/">How it works</a></li>
+        <li><a href="guide/faq/">FAQ</a></li>
+      </ul>
+    </div>
+    <div>
+      <h4>Project</h4>
+      <ul>
+        <li><a href="https://github.com/SamAct/todo-ledger">Source on GitHub</a></li>
+        <li><a href="https://github.com/SamAct/todo-ledger/issues">Report an issue</a></li>
+        <li><a href="https://github.com/SamAct/todo-ledger/blob/main/LICENSE">MIT license</a></li>
+      </ul>
+    </div>
+  </div>
+</footer>
+
+<script src="assets/replica.js" defer></script>
+<script src="assets/site.js" defer></script>
+</body>
+</html>

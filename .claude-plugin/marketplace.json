@@ -11,7 +11,7 @@
       "description": "One global ledger of the todos, parked work, proposals and discussions you and Claude leave behind, across every project, in a ToDo's sidebar",
       "version": "1.0.0",
       "author": { "name": "SamAct" },
-      "homepage": "https://github.com/SamAct/todo-ledger",
+      "homepage": "https://samact.github.io/todo-ledger/",
       "license": "MIT",
       "keywords": ["todo", "ledger", "backlog", "sidebar", "mod"]
     }
