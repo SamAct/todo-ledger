@@ -3,10 +3,12 @@ import { SCAN_SYSTEM, buildScanPrompt, parseScanReply, parseScanUpdates, shouldS
 import type { ScanUpdate } from '../src/scan.ts'
 import { KINDS, cleanTitle, clip, dedupeKey, wrapLines, isOpen, lastSessionTitle, makeItem, parseItem, randomHex4, sessionLabel, similarTitle } from '../src/item.ts'
 import type { Item, Kind, Origin, Source, Status } from '../src/item.ts'
-import { fallbackArgv, startOptions, startPrompt, terminalArgv, terminalTask } from '../src/start.ts'
+import { batchPrompt, fallbackArgv, startOptions, startPrompt, terminalArgv, terminalTask } from '../src/start.ts'
 import type { StartChoice } from '../src/start.ts'
 import { TABS, age, bandLabel, displayOrder, firstView, groupItems, itemsForTab, tabOf } from '../src/view.ts'
 import type { Tab } from '../src/view.ts'
+import { THEMES, nextTheme, themeById, withAlpha } from '../src/theme.ts'
+import type { Theme } from '../src/theme.ts'
 
 // Every function below that takes $ must stay top-level in this file: the validator
 // rejects passing $ into functions imported from other files.
@@ -33,6 +35,16 @@ let expandedId: string | null = null
 let notingId: string | null = null
 let startingId: string | null = null
 let allNotesId: string | null = null
+// What is typed in the note field, mirrored so a wrapped preview can show it (the field
+// itself is one line). It belongs to draftFor and resets when another item is being noted.
+let noteDraft = ''
+let draftFor: string | null = null
+// One pending preview redraw at a time; it lands this long after the first key of a burst.
+let previewTimer = false
+const PREVIEW_MS = 300
+// Items picked with Queue, in the order they were picked. In memory only: a stale
+// queue must never send by surprise after a restart.
+const queue = new Set<string>()
 // The list draws its first LIST_LIMIT rows (in display order) until the person asks for all:
 // fewer elements per draw keeps presses responsive on a long ledger.
 const LIST_LIMIT = 40
@@ -41,12 +53,26 @@ let cwd = ''
 // One accent colour for what needs attention (the open card, the decision mark,
 // started items); everything else is hierarchy by weight, dimming and spacing.
 // A theme key, so light and dark themes both fit.
-const ACCENT = 'suggestion'
+// These follow the chosen theme (src/theme.ts); applyTheme sets them all at once.
+let theme: Theme = THEMES[0]
+let ACCENT = theme.accent
 // Faint tints for a row's project, session and age.
-const META = { project: '#5b8fd9', session: '#a57fd6', age: '#4fa88a' }
+let META = { project: theme.project, session: theme.session, age: theme.age }
 // The same hues at low alpha, as pill backgrounds on the desktop. A coloured area
 // behind a plain Button keeps it pressable (a Button's own text takes no colour).
-const META_BG = { project: '#5b8fd92e', session: '#a57fd62e', age: '#4fa88a2e' }
+let META_BG = { project: withAlpha(theme.project, 0.18), session: withAlpha(theme.session, 0.18), age: withAlpha(theme.age, 0.18) }
+// Behind the rows captured in the session being used, on the desktop (about 8% alpha).
+let THIS_SESSION_BG = withAlpha(theme.tint, 0.08)
+// A very light wash over the whole pane on the desktop; the default theme has none.
+let PANE_WASH: string | undefined
+function applyTheme(t: Theme) {
+  theme = t
+  ACCENT = t.accent
+  META = { project: t.project, session: t.session, age: t.age }
+  META_BG = { project: withAlpha(t.project, 0.18), session: withAlpha(t.session, 0.18), age: withAlpha(t.age, 0.18) }
+  THIS_SESSION_BG = withAlpha(t.tint, 0.08)
+  PANE_WASH = t.id === 'ledger' ? undefined : withAlpha(t.tint, 0.05)
+}
 const CLOSED_MEMORY_MS = 30 * 86_400_000
 let lastLoadAt = 0
 const REFRESH_MS = 5000
@@ -413,6 +439,31 @@ async function doStart($: any, item: Item, choice: StartChoice): Promise<void> {
   }
 }
 
+// Sends every queued item as one prompt; the agent decides how to run them.
+async function sendQueued($: any, items: Item[]): Promise<void> {
+  if (!items.length) return
+  const text = batchPrompt(items, cwd || (await $.session.cwd()))
+  try {
+    const stamp = new Date(await $.clock.now()).toISOString()
+    for (const item of items) await saveItem($, { ...item, status: 'in_progress', updatedAt: stamp })
+    $.ui.toast(replying ? 'Queued: starts when the current reply finishes' : 'Sending ' + items.length + ' items')
+    let dropped: string | null = null
+    try {
+      const r = await $.prompt.submit({ text, asUser: true })
+      if (r && typeof r.drop === 'string') dropped = r.drop
+    } catch (err: any) { dropped = err.message }
+    if (dropped !== null) {
+      const back = new Date(await $.clock.now()).toISOString()
+      for (const item of items) await saveItem($, { ...item, updatedAt: back })
+      $.ui.toast('Prompt not sent: ' + dropped)
+      return
+    }
+    queue.clear()
+  } catch (err: any) {
+    $.ui.toast('Send failed: ' + err.message)
+  }
+}
+
 // The Start step: one button per way to start, in place of the card's actions, so
 // a choice is a single press (a picker needed focus, arrows and Enter). The first
 // is the main one; Cancel is plain and dim so it never competes.
@@ -499,6 +550,8 @@ async function registerTool($: any, spec: any): Promise<void> {
 export function register(on) {
   on('session.start', async ($, e, next) => {
     try { cwd = await $.session.cwd() } catch { /* keep '' until a render reads it */ }
+    // The theme the person last chose, kept across sessions.
+    try { applyTheme(themeById(await $.store.get('theme'))) } catch { /* the default theme */ }
     // Picks up items other sessions write; the timer stops when the module reloads.
     $.clock.every(SYNC_MS, () => syncIfChanged($))
     $.clock.after(0, () => lookupSessionName($))
@@ -604,6 +657,8 @@ export function register(on) {
     // Read the cwd per render so the filter follows /cd and matches what capture stores.
     let here = cwd
     try { here = await $.session.cwd() } catch { /* keep the session.start value */ }
+    let thisSession = ''
+    try { thisSession = await $.session.id() } catch { /* no highlight without an id */ }
     const rows = itemsForTab(cache, tab, allProjects ? null : here)
     const ordered = displayOrder(rows, tab)
     const head = ordered.slice(0, LIST_LIMIT)
@@ -640,12 +695,43 @@ export function register(on) {
         Button({ key: 'scope', plain: true, hotkey: 'p',
           label: (allProjects ? 'All projects' : 'This project') + ' ▾',
           onPress: () => { allProjects = !allProjects; showAllRows = false; select(null) } }),
-        Button({ key: 'refresh', plain: true, dimColor: true, hotkey: 'r', label: '↻',
-          onPress: async () => {
-            try { await forceRefresh($) } catch (err: any) { $.ui.toast('Refresh failed: ' + err.message) }
-          } }),
+        Box({ flexDirection: 'row', columnGap: 2, children: [
+          // One button steps through the five themes and remembers the choice.
+          Button({ key: 'theme', plain: true, dimColor: true, label: '◐ ' + theme.label,
+            onPress: async () => {
+              applyTheme(nextTheme(theme.id))
+              try { await $.store.set('theme', theme.id) } catch { /* kept for this session only */ }
+              redraw()
+            } }),
+          Button({ key: 'refresh', plain: true, dimColor: true, label: '↻',
+            onPress: async () => {
+              try { await forceRefresh($) } catch (err: any) { $.ui.toast('Refresh failed: ' + err.message) }
+            } }),
+        ] }),
       ],
     })
+
+    // Queued items that are still open (a closed one drops out), in pick order.
+    const queued = [...queue].map((id) => cache.find((i) => i.id === id)).filter((i): i is Item => !!i && isOpen(i))
+    for (const id of [...queue]) if (!queued.some((i) => i.id === id)) queue.delete(id)
+    // Shown only with something queued, as one bar under the tabs: the count at the left,
+    // a dim Clear and the one primary Send all at the right. On the desktop the bar is
+    // washed in the accent so it reads as part of the list it acts on.
+    const tray = queued.length === 0 ? [] : [Box({
+      key: 'queue-tray',
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: 1,
+      ...(e.surface === 'desktop' ? { paddingX: 2, backgroundColor: withAlpha(theme.tint, 0.1) } : {}),
+      children: [
+        Text({ color: ACCENT, children: [queued.length + ' queued'] }),
+        Box({ flexDirection: 'row', alignItems: 'center', columnGap: 2, children: [
+          Button({ key: 'queue-clear', label: 'Clear', plain: true, dimColor: true, onPress: () => { queue.clear(); redraw() } }),
+          Button({ key: 'queue-send', label: 'Send all', variant: 'primary', onPress: async () => { await sendQueued($, queued); redraw() } }),
+        ] }),
+      ],
+    })]
 
     // Row 2: who started it; the chosen tab at full strength, the others dim.
     const tabRow = Box({
@@ -687,6 +773,9 @@ export function register(on) {
       const start = Button({ key: 'start-' + i.id, label: 'Start', ...hk('s'),
         ...(i.kind === 'proposal' ? {} : { variant: 'primary' as const }),
         onPress: () => { startingId = i.id; notingId = null; redraw() } })
+      const picked = queue.has(i.id)
+      const queueBtn = Button({ key: 'queue-' + i.id, label: picked ? 'Queued ✓' : 'Queue', ...hk('q'),
+        onPress: () => { if (picked) queue.delete(i.id); else queue.add(i.id); redraw() } })
       const note = !canInput ? []
         : noting
           ? [Button({ key: 'note-cancel-' + i.id, label: 'Cancel', plain: true, dimColor: true, onPress: () => { notingId = null; redraw() } })]
@@ -696,11 +785,13 @@ export function register(on) {
           Button({ key: 'approve-' + i.id, label: 'Approve', variant: 'primary', ...hk('a'), onPress: () => closeItem(i, i.status, 'todo') }),
           Button({ key: 'drop-' + i.id, label: 'Reject', ...hk('x'), onPress: () => closeItem(i, 'dropped') }),
           start,
+          queueBtn,
           ...note,
         ]
       }
       return [
         start,
+        queueBtn,
         Button({ key: 'done-' + i.id, label: 'Done', ...hk('d'), onPress: () => closeItem(i, 'done') }),
         Button({ key: 'drop-' + i.id, label: 'Drop', ...hk('x'), onPress: () => closeItem(i, 'dropped') }),
         ...note,
@@ -710,9 +801,11 @@ export function register(on) {
     // Row width in title characters. The desktop draws a proportional font, about
     // 1.4 characters per cell, so text wraps later there to use the pane's real width.
     const cols = Math.max(12, (e.props.bodyColumns ?? 40) - 1)
-    const wide = e.surface === 'desktop' ? 1.4 : 1
-    // Row chrome: mark and gap (2), a spare column.
-    const titleCols = Math.max(16, Math.floor((cols - 3) * wide))
+    const wide = e.surface === 'desktop' ? 1.2 : 1
+    // Row chrome: mark and gap (2), a spare column; on the desktop also the row's side
+    // padding (2), so a title never runs past its row or the open card.
+    const chrome = e.surface === 'desktop' ? 6 : 3
+    const titleCols = Math.max(16, Math.floor((cols - chrome) * wide))
 
     const projectOf = (i: Item) => i.project.split(/[\\/]/).filter(Boolean).pop() ?? i.project
     // Where and when, each part in its own faint tint (a mid-tone drawn dim, readable
@@ -750,12 +843,24 @@ export function register(on) {
     const compactRow = (i: Item, mark: string, color: string | undefined, last: boolean) => {
       const open = () => select(i.id)
       const lines = wrapLines(i.title, titleCols, 2)
+      // After the meta line: a dot on the terminal for a row from this session (the
+      // desktop tints it instead), and "queued" for a picked one.
+      const extras = [
+        ...(!pills && thisSession && i.sessionId === thisSession ? [Text({ color: ACCENT, children: ['● this session'] })] : []),
+        ...(queue.has(i.id) ? [Text({ color: ACCENT, children: ['queued'] })] : []),
+      ]
       return Box({
         key: 'row-' + i.id,
         flexDirection: 'row',
         columnGap: 1,
         alignItems: 'flex-start',
-        ...(last ? {} : { marginBottom: 1 }),
+        // Desktop rows are padded blocks (the padding is also the gap between them, so
+        // a tint has room around the text); the terminal separates rows by one blank line.
+        // Flat rows, no outline (only the open card is outlined). Desktop rows get a little
+        // side padding so the this-session tint has room; the gap between rows is the same
+        // blank line as on the terminal.
+        ...(pills ? { paddingX: 1, marginBottom: 1 } : last ? {} : { marginBottom: 1 }),
+        ...(pills && thisSession && i.sessionId === thisSession ? { backgroundColor: THIS_SESSION_BG } : {}),
         children: [
           markOf(i, mark, color),
           Box({
@@ -765,7 +870,9 @@ export function register(on) {
             children: [
               Button({ key: 'title-' + i.id, plain: true, label: lines[0] ?? '', onPress: open }),
               ...(lines[1] ? [Button({ key: 'title2-' + i.id, plain: true, label: lines[1], onPress: open })] : []),
-              metaLine(i, open),
+              extras.length
+                ? Box({ flexDirection: 'row', columnGap: 1, children: [metaLine(i, open), ...extras] })
+                : metaLine(i, open),
             ],
           }),
         ],
@@ -789,6 +896,7 @@ export function register(on) {
     // is not repeated: the card sits under its group heading.
     const selectedCard = (i: Item, mark: string, color?: string) => {
       const noting = notingId === i.id && canInput
+      if (draftFor !== (noting ? i.id : null) && (noting || draftFor === i.id)) { noteDraft = ''; draftFor = noting ? i.id : null }
       const showAll = allNotesId === i.id
       const hidden = showAll ? 0 : Math.max(0, i.notes.length - 3)
       return Box({
@@ -796,7 +904,8 @@ export function register(on) {
         flexDirection: 'column',
         borderStyle: 'round',
         borderColor: ACCENT,
-        paddingX: 1,
+        paddingX: pills ? 2 : 1,
+        ...(pills ? { paddingY: 1 } : {}),
         marginBottom: 1,
         children: [
           Box({
@@ -832,9 +941,29 @@ export function register(on) {
               })]
             : []),
           ...(noting
-            ? [Box({ marginTop: 1, width: '100%', minHeight: 3, borderStyle: 'round', borderDimColor: true, paddingX: 1, children: [
-                Input({ key: 'note-input-' + i.id, value: '', placeholder: 'Write a note, then press Enter', submitLabel: 'add', autoFocus: true,
-                  onSubmit: async (v: string) => { notingId = null; await addNote($, i.id, v); redraw() } }),
+            // A roomy field: full width (a column, so the Input stretches), taller than one
+            // line, and outlined in the accent so it reads as the place to type. The Input
+            // itself is one line, so Enter adds the note.
+            ? [Box({ marginTop: 1, flexDirection: 'column', width: '100%', children: [
+                Text({ dimColor: true, children: ['Add a note'] }),
+                Box({ width: '100%', minHeight: 5, borderStyle: 'round', borderColor: ACCENT, paddingX: 2, paddingY: 1, flexDirection: 'column', children: [
+                  // No `value`: a drawn value replaces what the person typed, which moves the
+                  // cursor when the preview redraws. The field keeps its own text instead.
+                  Input({ key: 'note-input-' + i.id, placeholder: 'What should the agent know? Context, constraints, a decision.', submitLabel: 'add note', autoFocus: true,
+                    // Redrawing on every key can move the cursor, so the preview catches up
+                    // a moment after typing pauses, and only while it is (or is about to be) shown.
+                    onInput: (v: string) => {
+                      const was = noteDraft.length > 40
+                      noteDraft = v; draftFor = i.id
+                      if (!was && v.length <= 40) return
+                      if (previewTimer) return
+                      previewTimer = true
+                      $.clock.after(PREVIEW_MS, () => { previewTimer = false; redraw() })
+                    },
+                    onSubmit: async (v: string) => { notingId = null; noteDraft = ''; draftFor = null; await addNote($, i.id, v); redraw() } }),
+                  // The field scrolls sideways; this shows the whole note, wrapped, as it grows.
+                  ...(noteDraft.length > 40 ? [Box({ marginTop: 1, children: [Text({ dimColor: true, wrap: 'wrap', children: [noteDraft] })] })] : []),
+                ] }),
               ] })]
             : []),
           Box({ flexDirection: 'row', columnGap: 1, flexWrap: 'wrap', marginTop: 1, children: actionsFor(i) }),
@@ -856,7 +985,7 @@ export function register(on) {
         ? shown.map((i, k) => itemView(i, i.status === 'dropped' ? '✕' : '✓', undefined, k === shown.length - 1))
         : groupItems(shown).flatMap((g, gi) => [
             Box({ ...(gi === 0 ? {} : { marginTop: 1 }), children: [Text({ dimColor: true, children: [g.label] })] }),
-            ...g.items.map((i, k) => itemView(i, g.mark, g.color, k === g.items.length - 1)),
+            ...g.items.map((i, k) => itemView(i, g.mark, g.color === 'suggestion' ? ACCENT : g.color, k === g.items.length - 1)),
           ])
     const more = ordered.length - shown.length
     if (more > 0) {
@@ -866,7 +995,8 @@ export function register(on) {
 
     return Box({
       flexDirection: 'column',
-      children: [scopeRow, tabRow, ...body],
+      ...(pills && PANE_WASH ? { backgroundColor: PANE_WASH } : {}),
+      children: [scopeRow, tabRow, ...tray, ...body],
     })
     } catch (err: any) {
       // A failed draw shows its reason instead of a blank pane.
