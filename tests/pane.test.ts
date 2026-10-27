@@ -1,19 +1,25 @@
 import { expect, test } from 'claude-code/testing'
 import { setup, start } from './fakes.ts'
 
-const BAND = { plugin: 'todo-ledger', component: 'SessionMode', requestId: 'footer', viewport: { columns: 120, rows: 40 },
-  props: { modes: ['Bypass permissions'] } } as const
+const BAND = { plugin: 'todo-ledger', component: 'AbovePrompt', requestId: 'band', viewport: { columns: 120, rows: 40 },
+  props: { hasSurvey: false, isWorking: false, maxRows: 5, bodyColumns: 100, scroll: { offset: 0, bodyRows: 5 }, view: {} } } as const
 const PANE = { plugin: 'todo-ledger', component: 'Pane', requestId: 'todo-ledger', viewport: { columns: 120, rows: 40 },
   props: { title: "ToDo's", isFocused: true, bodyColumns: 100, placement: 'inline', scroll: { offset: 0, bodyRows: 20 }, view: {} } } as const
 
 // Item titles are drawn as Button labels, so title lookups use type 'Button' (api-notes item 15).
 
-test('empty ledger: band keeps engine content and still offers the pane', async ($, on) => {
+test('empty ledger: the band still offers the pane', async ($, on) => {
   setup(on)
   await start($)
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect((await ui.find({ key: 'ledger-toggle' })).props.label).toBe("☰ ToDo's")
-  expect(await ui.find({ type: 'Text', text: 'engine' })).toBeDefined()
+})
+
+test('a survey owns the band: the button yields to it', async ($, on) => {
+  setup(on)
+  await start($)
+  const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, hasSurvey: true }, surface: 'desktop' })
+  expect(await ui.find({ key: 'ledger-toggle' })).toBeUndefined()
 })
 
 test('band shows count and opens the pane', async ($, on) => {
@@ -31,24 +37,23 @@ test('band shows count and opens the pane', async ($, on) => {
   expect(calls.opens).toEqual(['todo-ledger'])
 })
 
-test('button sits on the same footer row as the engine mode labels', async ($, on) => {
+test('the button sits at the right of a slim row above the prompt, with the count', async ($, on) => {
   setup(on)
   await start($)
   await $.command.run({ command: 'todo', args: 'add a' })
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  const button = await ui.find({ key: 'ledger-toggle' })
-  expect(button.props.label).toBe("☰ ToDo's 1")
-  const row = await ui.find({ key: 'ledger-footer' })
+  expect((await ui.find({ key: 'ledger-toggle' })).props.label).toBe("☰ ToDo's 1")
+  const row = await ui.find({ key: 'ledger-band' })
   expect(row.props.flexDirection).toBe('row')
-  expect(await ui.find({ type: 'Text', text: 'engine' })).toBeDefined()
+  expect(row.props.justifyContent).toBe('flex-end')
 })
 
-test('nothing is drawn above the prompt any more', async ($, on) => {
+test('nothing is drawn in the prompt footer slot', async ($, on) => {
   setup(on)
   await start($)
   await $.command.run({ command: 'todo', args: 'add a' })
-  const ui = await $.ui.mount({ ...BAND, component: 'AbovePrompt', requestId: 'band', surface: 'desktop',
-    props: { hasSurvey: false, isWorking: false, maxRows: 5, bodyColumns: 100, scroll: { offset: 0, bodyRows: 5 }, view: {} } })
+  const ui = await $.ui.mount({ plugin: 'todo-ledger', component: 'SessionMode', requestId: 'footer', viewport: { columns: 120, rows: 40 },
+    props: { modes: ['Bypass permissions'] }, surface: 'desktop' })
   expect(await ui.find({ key: 'ledger-toggle' })).toBeUndefined()
 })
 

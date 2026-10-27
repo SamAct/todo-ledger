@@ -1,8 +1,8 @@
 import { expect, test } from 'claude-code/testing'
 import { setup, start } from './fakes.ts'
 
-const BAND = { plugin: 'todo-ledger', component: 'SessionMode', requestId: 'footer', viewport: { columns: 120, rows: 40 },
-  props: { modes: ['Bypass permissions'] } } as const
+const BAND = { plugin: 'todo-ledger', component: 'AbovePrompt', requestId: 'band', viewport: { columns: 120, rows: 40 },
+  props: { hasSurvey: false, isWorking: false, maxRows: 5, bodyColumns: 100, scroll: { offset: 0, bodyRows: 5 }, view: {} } } as const
 
 test('update_item save failure returns Not saved and toasts', async ($, on) => {
   const opts: { denyWrite?: string } = {}

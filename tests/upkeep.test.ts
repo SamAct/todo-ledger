@@ -104,3 +104,27 @@ test('tool descriptions tell agents to keep the ledger current', async ($, on) =
   expect(calls.toolDescs.update_item).toMatch(/finished/i)
   expect(calls.toolDescs.park_item).toMatch(/list_items/)
 })
+
+test('park_item description sets the worth test and the close duty', async ($, on) => {
+  const { calls } = setup(on)
+  await start($)
+  expect(calls.toolDescs.park_item).toMatch(/lose it/i)
+  expect(calls.toolDescs.park_item).toMatch(/never duplicate/i)
+  expect(calls.toolDescs.park_item).toMatch(/status done/i)
+})
+
+test('the ledger rules are added to the system prompt only where the ledger tools are offered', async ($, on) => {
+  setup(on)
+  on('prompt.compose', () => ({ sections: [{ id: 'intro', text: 'hi', scope: 'shared' }] }))
+  await start($)
+  const base = { model: 'claude-sonnet-5-5', promptModel: 'claude-sonnet-5-5', surfaces: ['terminal'], outputStyle: null, traits: [] }
+  const withTool = await $.prompt.compose({ ...base, tools: ['Read', 'mcp__todo-ledger__park_item'] })
+  const section = withTool.sections.find((s: any) => s.id === 'todo-ledger:policy')!
+  expect(section.scope).toBe('session')
+  expect(section.text).toMatch(/Never duplicate/)
+  expect(section.text).toMatch(/Always close/)
+  expect(section.text).toMatch(/Do not park/)
+  expect(withTool.sections.filter((s: any) => s.id === 'todo-ledger:policy').length).toBe(1)
+  const without = await $.prompt.compose({ ...base, tools: ['Read'] })
+  expect(without.sections.some((s: any) => s.id === 'todo-ledger:policy')).toBe(false)
+})

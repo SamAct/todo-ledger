@@ -3,7 +3,8 @@ import { SCAN_SYSTEM, buildScanPrompt, parseScanReply, parseScanUpdates, shouldS
 import type { ScanUpdate } from '../src/scan.ts'
 import { KINDS, cleanTitle, clip, dedupeKey, wrapLines, isOpen, lastSessionTitle, makeItem, parseItem, randomHex4, sessionLabel, similarTitle } from '../src/item.ts'
 import type { Item, Kind, Origin, Source, Status } from '../src/item.ts'
-import { batchPrompt, fallbackArgv, startOptions, startPrompt, terminalArgv, terminalTask } from '../src/start.ts'
+import { POLICY_ID, POLICY_TEXT } from '../src/policy.ts'
+import { batchPrompt,fallbackArgv, startOptions, startPrompt, terminalArgv, terminalTask } from '../src/start.ts'
 import type { StartChoice } from '../src/start.ts'
 import { TABS, age, bandLabel, displayOrder, firstView, groupItems, itemsForTab, tabOf } from '../src/view.ts'
 import type { Tab } from '../src/view.ts'
@@ -558,10 +559,12 @@ export function register(on) {
     await registerTool($, {
       name: 'park_item',
       description:
-        'Record an item in the user\'s global todo ledger. Call this, without asking first, whenever you ' +
-        'defer, park, postpone or put something out of scope, or propose work the user has not asked for. ' +
-        'If it may already be recorded, call list_items first and update that item instead of adding a second one. ' +
-        'kind: todo | deferred | proposal | discussion. Keep title to one line.',
+        'Record an item in the user\'s global todo ledger, without asking first, when you defer, park or put ' +
+        'something out of scope, or propose work with a clear payoff, and the user would lose it if nobody wrote it down. ' +
+        'Skip anything you can finish now, steps of the current task, progress notes and speculation. ' +
+        'Never duplicate: call list_items first, and update that item with a note instead of adding a second one ' +
+        'when an open item covers the same work in any wording. Close the item with update_item (status done) ' +
+        'as soon as the work is finished. kind: todo | deferred | proposal | discussion. Keep title to one line.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -631,18 +634,20 @@ export function register(on) {
     return next(e)
   })
 
-  // The button lives in the prompt footer (the row with the permission-mode label),
-  // on the same line as the engine's own mode labels.
-  on('ui.render', { component: 'SessionMode' }, async ($, e, next) => {
-    const theirs = await next(e)
+  // The button lives in a slim row directly above the prompt box, at the right. The
+  // footer slot it used before is the engine's dim mode-label line, which Claude Code
+  // now wraps onto its own cramped row. A survey owns this band while it is up.
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    // Whatever sits beneath (another mod's button) stays in the row, to the left of ours.
+    const inner = await next(e)
+    if (e.props?.hasSurvey) return inner
     await refreshIfStale($)
     let here = cwd
     try { here = await $.session.cwd() } catch { /* keep the session.start value */ }
     const label = bandLabel(cache, here)
     const { Box, Button } = $.ui.resolve(e)
-    const mine = Button({ key: 'ledger-toggle', label, plain: true, onPress: () => safeToggle($) })
-    return Box({ key: 'ledger-footer', flexDirection: 'row', columnGap: 2, alignItems: 'center',
-      children: theirs ? [mine, theirs] : [mine] })
+    return Box({ key: 'ledger-band', flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center',
+      children: [...(inner ? [inner] : []), Button({ key: 'ledger-toggle', label, plain: true, onPress: () => safeToggle($) })] })
   })
 
   on('ui.render', { component: 'Pane' }, async ($, e, next) => {
@@ -1030,13 +1035,23 @@ export function register(on) {
     return result
   })
 
+  // The ledger rules ride in the system prompt of every agent that is offered the ledger tools.
+  on('prompt.compose', async ($, e, next) => {
+    const out = await next(e)
+    if (!e.tools.includes('mcp__todo-ledger__park_item')) return out
+    return { sections: [...out.sections.filter((s) => s.id !== POLICY_ID), { id: POLICY_ID, text: POLICY_TEXT, scope: 'session' as const }] }
+  })
+
   on('tool.call', { tool: 'mcp__todo-ledger__park_item' }, async ($, e) => {
     if (!KINDS.includes(e.kind)) return { result: 'Not saved: kind must be one of ' + KINDS.join(', ') }
     if (typeof e.title !== 'string' || !e.title.trim()) return { result: 'Not saved: title is required' }
     try {
       const r = await capture($, { title: e.title, kind: e.kind, origin: 'agent', source: 'tool', body: e.body })
       parkedThisTurn = true
-      return { result: (r.isNew ? 'Parked ' : 'Already in ledger, added note to ') + r.item.id + ': ' + r.item.title }
+      return { result: r.isNew
+        ? 'Parked ' + r.item.id + ': ' + r.item.title + '. Close it with update_item (status done) when the work is finished.'
+        : 'Already in ledger as ' + r.item.id + ': ' + r.item.title + '. Nothing new was added; ' +
+          'update that item with a note if you have more to say.' }
     } catch (err: any) {
       $.ui.toast('ToDo not saved: ' + err.message)
       return { result: 'Not saved: ' + err.message }
